@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
-import { authMe, authLogout } from "@/lib/api";
+import { authMe, authLogout, getToken } from "@/lib/api";
 
 const AuthCtx = createContext(null);
 
@@ -19,9 +19,9 @@ export function AuthProvider({ children }) {
     }, []);
 
     useEffect(() => {
-        // CRITICAL: If returning from OAuth callback, skip the /me check.
+        // CRITICAL: If returning from OAuth callback (no token yet), skip the /me check.
         // AuthCallback will exchange the session_id and establish the session first.
-        if (window.location.hash?.includes("session_id=")) {
+        if (window.location.hash?.includes("session_id=") && !getToken()) {
             setLoading(false);
             return;
         }

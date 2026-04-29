@@ -3,13 +3,40 @@ import axios from "axios";
 export const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
 
+const TOKEN_KEY = "jp_session_token";
+export const getToken = () => {
+    try {
+        return localStorage.getItem(TOKEN_KEY);
+    } catch {
+        return null;
+    }
+};
+export const setToken = (t) => {
+    try {
+        if (t) localStorage.setItem(TOKEN_KEY, t);
+        else localStorage.removeItem(TOKEN_KEY);
+    } catch {
+        // ignore
+    }
+};
+
 export const api = axios.create({
     baseURL: API,
     withCredentials: true,
 });
 
+api.interceptors.request.use((config) => {
+    const t = getToken();
+    if (t) {
+        config.headers = config.headers || {};
+        config.headers.Authorization = `Bearer ${t}`;
+    }
+    return config;
+});
+
 export async function authSession(sessionId) {
     const { data } = await api.post("/auth/session", { session_id: sessionId });
+    if (data?.session_token) setToken(data.session_token);
     return data;
 }
 
@@ -19,8 +46,12 @@ export async function authMe() {
 }
 
 export async function authLogout() {
-    const { data } = await api.post("/auth/logout");
-    return data;
+    try {
+        await api.post("/auth/logout");
+    } finally {
+        setToken(null);
+    }
+    return { ok: true };
 }
 
 export const Jobs = {

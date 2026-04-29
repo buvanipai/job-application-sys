@@ -217,7 +217,8 @@ async def auth_session(body: SessionRequest, response: Response):
     async with httpx.AsyncClient(timeout=20) as hc:
         r = await hc.get(EMERGENT_AUTH_URL, headers={"X-Session-ID": body.session_id})
     if r.status_code != 200:
-        raise HTTPException(status_code=401, detail="Invalid session_id")
+        logger.warning("Emergent auth session-data failed: status=%s body=%s", r.status_code, r.text[:200])
+        raise HTTPException(status_code=401, detail=f"Emergent auth rejected session_id (upstream {r.status_code})")
     data = r.json()
     email = data.get("email")
     name = data.get("name") or email
@@ -263,7 +264,13 @@ async def auth_session(body: SessionRequest, response: Response):
         path="/",
         max_age=7 * 24 * 60 * 60,
     )
-    return {"user_id": user_id, "email": email, "name": name, "picture": picture}
+    return {
+        "user_id": user_id,
+        "email": email,
+        "name": name,
+        "picture": picture,
+        "session_token": session_token,
+    }
 
 
 @api.get("/auth/me")
@@ -274,6 +281,10 @@ async def auth_me(user: dict = Depends(require_user)):
 @api.post("/auth/logout")
 async def auth_logout(request: Request, response: Response):
     token = request.cookies.get("session_token")
+    if not token:
+        auth_header = request.headers.get("Authorization") or request.headers.get("authorization")
+        if auth_header and auth_header.lower().startswith("bearer "):
+            token = auth_header.split(" ", 1)[1].strip()
     if token:
         await db.user_sessions.delete_many({"session_token": token})
     response.delete_cookie("session_token", path="/")
