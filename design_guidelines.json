@@ -1,0 +1,100 @@
+{
+  "theme": "light",
+  "archetype": "3 (Pastel & Soft) mixed with Flat Utility (Soft Neo-Brutalism)",
+  "typography": {
+    "headings": {
+      "family": "Sora",
+      "import": "@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&display=swap');",
+      "rules": "Use for all headlines, section titles, and modal headers. Use font-semibold to font-extrabold. tracking-tight."
+    },
+    "body": {
+      "family": "DM Sans",
+      "import": "@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap');",
+      "rules": "Clear legibility for dense dashboard tables and text."
+    },
+    "mono": {
+      "family": "JetBrains Mono",
+      "import": "@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');",
+      "rules": "CRITICAL: Use for pipeline stages, tags, AI matching scores, scheduler times, and logs."
+    }
+  },
+  "colors": {
+    "background": "#FDFCF8",
+    "surface": "#FFFFFF",
+    "text_primary": "#1A1A1A",
+    "text_secondary": "#5C5C5C",
+    "palette": {
+      "primary": {
+        "fill": "#a491d3",
+        "border": "#8170a9",
+        "text": "#1A1A1A",
+        "usage": "Dashboard navigation, primary buttons, major CTAs, active states."
+      },
+      "secondary": {
+        "fill": "#818aa3",
+        "border": "#656c82",
+        "text": "#1A1A1A",
+        "usage": "AI scoring, Sonnet processing steps, automation steps."
+      },
+      "output": {
+        "fill": "#c5dca0",
+        "border": "#9db080",
+        "text": "#1A1A1A",
+        "usage": "Outputs, logged data, inserted rows, success states."
+      },
+      "input": {
+        "fill": "#f5f2b8",
+        "border": "#c4c193",
+        "text": "#1A1A1A",
+        "usage": "Data sources, scraping triggers, raw JDs."
+      },
+      "note": {
+        "fill": "#f9dad0",
+        "border": "#c7aea6",
+        "text": "#1A1A1A",
+        "usage": "Optional steps, follow-ups, LinkedIn notes, campaign trackers."
+      }
+    }
+  },
+  "design_system": {
+    "style": "Flat Pastel Utility / Soft Neo-Brutalism",
+    "borders": "1.5px solid borders strictly enforced on all UI components. Use the exact 20% darker shades defined in the palette. For white surfaces/cards, use border-[#E0E0E0] or a primary palette border.",
+    "border_radius": "8px (rounded-lg) EXACTLY. Do not use full pills (rounded-full) or sharp corners.",
+    "shadows": "NONE. No drop shadows anywhere. Do not use shadow-sm or shadow-lg classes. Use flat colored backgrounds and borders to create hierarchy.",
+    "hover_states": "Hover states should NOT use shadows. Instead, use a slight translation (-translate-y-0.5) and darken the background color slightly by applying black with 5% opacity, or just change the fill."
+  },
+  "layout_spacing": {
+    "bento_grid": "Use tight bento grids (gap-4 to gap-6). grid-cols-1 md:grid-cols-3 lg:grid-cols-4 for dashboard overviews.",
+    "containers": "Generous internal padding (p-6 or p-8) inside bordered cards to avoid text-border collision.",
+    "pipeline_visualization": "Use horizontal scrollable bento-style lanes or timelines to represent stages. Map colors directly to the stage: Input (yellow) -> AI (gray/blue) -> DB Output (green)."
+  },
+  "component_instructions": {
+    "buttons": "Flat background, border-[1.5px] matching the darker shade of the button color, 8px radius. Text must be bold (Sora). NO SHADOWS.",
+    "cards": "Override Shadcn Card component classes: `rounded-lg border-[1.5px] shadow-none bg-white`. Never use default shadows.",
+    "badges": "Use JetBrains Mono. Flat background with matching 1.5px border. Example: `bg-[#c5dca0] border-[#9db080] border-[1.5px]`.",
+    "tables": "Row borders only on the bottom, flush layout. No outer container shadow. Header font should be JetBrains Mono.",
+    "data_test_attributes": "All interactive elements MUST have data-testid attributes (e.g., `data-testid=\"scrape-jobs-btn\"`, `data-testid=\"pipeline-stage-card\"`)."
+  },
+  "media": {
+    "image_urls": [
+      {
+        "url": "https://images.unsplash.com/photo-1762522926157-bcc04bf0b10a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBwb3J0cmFpdCUyMGhlYWRzaG90fGVufDB8fHx8MTc3NzQ5NDI0NHww&ixlib=rb-4.1.0&q=85",
+        "category": "user_avatar",
+        "description": "Professional profile avatar for the logged-in user in the dashboard header."
+      }
+    ]
+  },
+  "icons": {
+    "library": "lucide-react",
+    "usage": "Use crisp, consistent sizing (size={18} or size={20}). Do not mix libraries."
+  },
+  "instructions_to_main_agent": [
+    "COMPLETELY REMOVE SHADOWS from Shadcn defaults. This is an absolute explicit requirement from the user.",
+    "Enforce 1.5px borders exactly everywhere. Use arbitrary values in Tailwind like `border-[1.5px]`.",
+    "Pipeline nodes must be visually color-coded according to the provided palette: Inputs (#f5f2b8), AI/Scoring (#818aa3), Outputs/DB (#c5dca0), Actions/Primary (#a491d3), Follow-ups (#f9dad0).",
+    "Apply fonts globally in index.css or via Tailwind config. 'Sora' for headings, 'DM Sans' for body, 'JetBrains Mono' for data points and code blocks.",
+    "Do not use gradients. Solid pastel blocks with dark, crisp borders only.",
+    "Ensure `data-testid` attributes are included on all interactive elements as requested for testing.",
+    "Ensure that JS files are written rather than TSX."
+  ]
+}
