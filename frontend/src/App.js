@@ -1,54 +1,97 @@
-import { useEffect } from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { AuthProvider } from "@/context/AuthContext";
+import ProtectedRoute from "@/components/ProtectedRoute";
+import Login from "@/pages/Login";
+import AuthCallback from "@/pages/AuthCallback";
+import Dashboard from "@/pages/Dashboard";
+import Jobs from "@/pages/Jobs";
+import JobDetail from "@/pages/JobDetail";
+import Prospects from "@/pages/Prospects";
+import Campaigns from "@/pages/Campaigns";
+import Skills from "@/pages/Skills";
+import Resumes from "@/pages/Resumes";
+import { Toaster } from "sonner";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
+function RouterRoot() {
+    const location = useLocation();
+    // Synchronously catch oauth callback
+    if (location.hash?.includes("session_id=")) {
+        return <AuthCallback />;
     }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
-
-function App() {
-  return (
-    <div className="App">
-      <BrowserRouter>
+    return (
         <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
+            <Route path="/" element={<Login />} />
+            <Route path="/login" element={<Login />} />
+            <Route
+                path="/dashboard"
+                element={
+                    <ProtectedRoute>
+                        <Dashboard />
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/jobs"
+                element={
+                    <ProtectedRoute>
+                        <Jobs />
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/jobs/:id"
+                element={
+                    <ProtectedRoute>
+                        <JobDetail />
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/prospects"
+                element={
+                    <ProtectedRoute>
+                        <Prospects />
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/campaigns"
+                element={
+                    <ProtectedRoute>
+                        <Campaigns />
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/skills"
+                element={
+                    <ProtectedRoute>
+                        <Skills />
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/resumes"
+                element={
+                    <ProtectedRoute>
+                        <Resumes />
+                    </ProtectedRoute>
+                }
+            />
         </Routes>
-      </BrowserRouter>
-    </div>
-  );
+    );
 }
 
-export default App;
+export default function App() {
+    return (
+        <div className="App">
+            <BrowserRouter>
+                <AuthProvider>
+                    <RouterRoot />
+                    <Toaster position="top-right" />
+                </AuthProvider>
+            </BrowserRouter>
+        </div>
+    );
+}
