@@ -1,5 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { useTheme } from "@/context/ThemeContext";
 import { useState } from "react";
 import {
     Briefcase,
@@ -9,6 +10,8 @@ import {
     Building2,
     LogOut,
     Settings as SettingsIcon,
+    Sun,
+    Moon,
 } from "lucide-react";
 import SettingsDialog from "@/components/SettingsDialog";
 
@@ -22,6 +25,7 @@ const navItems = [
 
 export default function Layout({ children }) {
     const { user, logout } = useAuth();
+    const { theme, toggle: toggleTheme } = useTheme();
     const navigate = useNavigate();
     const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -63,6 +67,16 @@ export default function Layout({ children }) {
                                 style={{ border: "1.5px solid #E0E0E0" }}
                             />
                         ) : null}
+                        <button
+                            data-testid="theme-toggle-btn"
+                            onClick={toggleTheme}
+                            aria-label="Toggle theme"
+                            title={theme === "dark" ? "Switch to light" : "Switch to dark"}
+                            className="jp-btn inline-flex items-center gap-2"
+                            style={{ background: "#ffffff", borderColor: "#E0E0E0" }}
+                        >
+                            {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+                        </button>
                         <button
                             data-testid="settings-btn"
                             onClick={() => setSettingsOpen(true)}

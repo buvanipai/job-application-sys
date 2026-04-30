@@ -1,6 +1,7 @@
 import "@/App.css";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/context/AuthContext";
+import { ThemeProvider } from "@/context/ThemeContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Login from "@/pages/Login";
 import AuthCallback from "@/pages/AuthCallback";
@@ -80,10 +81,12 @@ export default function App() {
     return (
         <div className="App">
             <BrowserRouter>
-                <AuthProvider>
-                    <RouterRoot />
-                    <Toaster position="top-right" />
-                </AuthProvider>
+                <ThemeProvider>
+                    <AuthProvider>
+                        <RouterRoot />
+                        <Toaster position="top-right" />
+                    </AuthProvider>
+                </ThemeProvider>
             </BrowserRouter>
         </div>
     );

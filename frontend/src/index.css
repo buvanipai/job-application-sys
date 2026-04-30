@@ -6,6 +6,27 @@
 @tailwind components;
 @tailwind utilities;
 
+/* -------- Theme tokens -------- */
+:root {
+    --jp-bg: #fdfcf8;
+    --jp-surface: #ffffff;
+    --jp-surface-2: #f6f5ee;
+    --jp-line: #e0e0e0;
+    --jp-ink: #1a1a1a;
+    --jp-sub: #5c5c5c;
+    --jp-overlay: rgba(0, 0, 0, 0.3);
+}
+html.dark {
+    --jp-bg: #14141a;
+    --jp-surface: #1f1f26;
+    --jp-surface-2: #2a2a33;
+    --jp-line: #34343f;
+    --jp-ink: #ededf0;
+    --jp-sub: #9a9aa5;
+    --jp-overlay: rgba(0, 0, 0, 0.6);
+    color-scheme: dark;
+}
+
 html,
 body,
 #root {
@@ -15,10 +36,13 @@ body,
 body {
     margin: 0;
     font-family: "DM Sans", ui-sans-serif, system-ui, sans-serif;
-    background-color: #fdfcf8;
-    color: #1a1a1a;
+    background-color: var(--jp-bg);
+    color: var(--jp-ink);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    transition:
+        background-color 200ms ease,
+        color 200ms ease;
 }
 
 code,
@@ -69,10 +93,10 @@ pre,
     }
 }
 
-/* Utilities to enforce flat no-shadow, 1.5px borders */
+/* -------- Flat utilities (theme-aware via CSS vars) -------- */
 .jp-card {
-    background: #ffffff;
-    border: 1.5px solid #e0e0e0;
+    background: var(--jp-surface);
+    border: 1.5px solid var(--jp-line);
     border-radius: 8px;
     box-shadow: none !important;
 }
@@ -95,16 +119,19 @@ pre,
     padding: 8px 14px;
     transition:
         transform 120ms ease,
-        background-color 120ms ease;
+        background-color 120ms ease,
+        color 120ms ease;
     box-shadow: none !important;
+    color: #1a1a1a;
 }
 .jp-btn:hover {
     transform: translateY(-1px);
 }
 .jp-input {
-    border: 1.5px solid #e0e0e0;
+    border: 1.5px solid var(--jp-line);
     border-radius: 8px;
-    background: #fff;
+    background: var(--jp-surface);
+    color: var(--jp-ink);
     padding: 10px 12px;
     width: 100%;
     font-family: "DM Sans", sans-serif;
@@ -121,9 +148,51 @@ pre,
     scrollbar-width: none;
 }
 
-/* Remove default shadcn shadow if any slip through */
 [class*="shadow-"] {
     box-shadow: none !important;
+}
+
+/* -------- Dark-mode overrides for inline-styled neutrals --------
+   Many components set explicit white-on-grey neutrals via inline `style`
+   props for buttons/cards. In dark mode flip them to surface/line vars
+   without rewriting every component. Pastel colors are intentionally
+   preserved as accents — they read well on dark backgrounds.
+*/
+html.dark [style*="background: #FFFFFF"],
+html.dark [style*="background: #ffffff"],
+html.dark [style*="background:#FFFFFF"],
+html.dark [style*="background:#ffffff"],
+html.dark [style*="background: rgb(255, 255, 255)"] {
+    background: var(--jp-surface-2) !important;
+    color: var(--jp-ink) !important;
+}
+html.dark [style*="borderColor: #E0E0E0"],
+html.dark [style*="border-color: #E0E0E0"],
+html.dark [style*="border-color:#E0E0E0"],
+html.dark [style*="border-color: rgb(224, 224, 224)"] {
+    border-color: var(--jp-line) !important;
+}
+/* Layout and pages use these literal Tailwind arbitrary values */
+html.dark .bg-\[\#FDFCF8\] {
+    background-color: var(--jp-bg) !important;
+}
+html.dark .text-\[\#1A1A1A\] {
+    color: var(--jp-ink) !important;
+}
+html.dark .text-\[\#1A1A1A\]\/80,
+html.dark .text-\[\#1A1A1A\]\/85,
+html.dark .text-\[\#1A1A1A\]\/70 {
+    color: var(--jp-ink) !important;
+    opacity: 0.8;
+}
+html.dark .text-jp-sub {
+    color: var(--jp-sub) !important;
+}
+html.dark .hover\:bg-black\/5:hover {
+    background-color: rgba(255, 255, 255, 0.04) !important;
+}
+html.dark .bg-black\/30 {
+    background-color: var(--jp-overlay) !important;
 }
 
 [data-debug-wrapper="true"] {

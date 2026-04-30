@@ -158,9 +158,9 @@ export default function JobDetail() {
                 </div>
             </div>
 
-            <div className="flex items-center justify-between mt-8 mb-3">
+            <div className="flex items-center justify-between mt-8 mb-3 flex-wrap gap-3">
                 <h2 className="font-heading text-2xl font-bold">Prospects</h2>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                     <button
                         data-testid="find-prospects-btn"
                         onClick={findProspects}
@@ -179,8 +179,45 @@ export default function JobDetail() {
                     >
                         <FileText size={16} /> Generate cover letter
                     </button>
+                    <button
+                        data-testid="answer-questions-btn"
+                        onClick={answerQuestions}
+                        disabled={busy}
+                        className="jp-btn inline-flex items-center gap-2"
+                        style={{ background: "#a491d3", borderColor: "#8170a9" }}
+                    >
+                        <MessageSquare size={16} /> Answer questions
+                    </button>
                 </div>
             </div>
+
+            {job?.interview_answers && job.interview_answers.length > 0 ? (
+                <div
+                    className="jp-card p-5 mb-6"
+                    style={{ background: "#a491d3", borderColor: "#8170a9" }}
+                    data-testid="interview-answers-block"
+                >
+                    <div className="flex items-center gap-2 mb-2">
+                        <MessageSquare size={16} />
+                        <h3 className="font-heading text-lg font-bold">Suggested interview Q&amp;A</h3>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {job.interview_answers.map((qa, i) => (
+                            <div
+                                key={i}
+                                className="rounded-lg p-3"
+                                style={{ background: "var(--jp-surface)", border: "1.5px solid var(--jp-line)" }}
+                                data-testid={`jd-qa-${i}`}
+                            >
+                                <div className="font-heading font-semibold text-sm">Q. {qa.q}</div>
+                                <div className="font-mono text-xs mt-1 whitespace-pre-wrap" style={{ color: "var(--jp-sub)" }}>
+                                    A. {qa.a}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            ) : null}
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {prospects.map((p) => (
