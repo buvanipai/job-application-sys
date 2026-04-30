@@ -113,10 +113,10 @@ def mock_scrape_jobs(limit: int = 6) -> list[dict]:
 
 
 def mock_find_prospects(company: str, n: int = 3) -> list[dict]:
-    """Mocked Apify + Hunter.io prospect discovery."""
+    """Mocked Apify + Vibe Prospecting MCP + Hunter.io prospect discovery."""
     slug = "".join(c for c in company.lower() if c.isalnum()) or "company"
     results = []
-    for _ in range(n):
+    for i in range(n):
         first = random.choice(FIRST_NAMES)
         last = random.choice(LAST_NAMES)
         role = random.choice(SAMPLE_PROSPECT_ROLES)
@@ -127,9 +127,12 @@ def mock_find_prospects(company: str, n: int = 3) -> list[dict]:
             "company": company,
             "email": email,
             "linkedin": f"https://linkedin.com/in/{first.lower()}-{last.lower()}-{uuid.uuid4().hex[:4]}",
-            "source": "mock-apify+hunter",
+            "source": random.choice(["apify+hunter (mock)", "vibe-prospecting-mcp (mock)"]),
             "confidence": random.randint(72, 96),
+            "priority": random.randint(1, 3),  # 1=highest, 3=lowest
         })
+    # Stable priority sort: highest first
+    results.sort(key=lambda x: (x["priority"], -x["confidence"]))
     return results
 
 

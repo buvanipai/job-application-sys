@@ -291,7 +291,7 @@ class TestScheduler:
         r = c.get(f"{base_url}/api/scheduler/status")
         assert r.status_code == 200
         d = r.json()
-        for k in ("pending_followups", "due_now", "followup_after_days", "poll_minutes"):
+        for k in ("pending_followups", "due_now", "followup_after_days", "apply_after_days", "poll_minutes"):
             assert k in d
 
     def test_run_returns_summary(self, primary_user, base_url):
@@ -337,9 +337,8 @@ class TestIsolation:
         # Secondary cannot update status
         r = sc.post(f"{base_url}/api/jobs/{target['id']}/status", json={"status": "archived"})
         assert r.status_code == 404
-        # Secondary cannot delete (delete returns deleted=0, not 404 by design - acceptable but flag)
+        # Secondary cannot delete -> 404 now (refactor changed contract)
         r = sc.delete(f"{base_url}/api/jobs/{target['id']}")
-        assert r.status_code == 200
-        assert r.json()["deleted"] == 0
+        assert r.status_code == 404
         # Primary's job still exists
         assert pc.get(f"{base_url}/api/jobs/{target['id']}").status_code == 200

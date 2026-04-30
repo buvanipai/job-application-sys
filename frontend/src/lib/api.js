@@ -57,6 +57,8 @@ export async function authLogout() {
 export const Jobs = {
     list: () => api.get("/jobs").then((r) => r.data),
     get: (id) => api.get(`/jobs/${id}`).then((r) => r.data),
+    add: (payload) => api.post("/jobs", payload).then((r) => r.data),
+    rescore: (id) => api.post(`/jobs/${id}/score`).then((r) => r.data),
     scrape: (limit = 6) => api.post("/jobs/scrape", { limit }).then((r) => r.data),
     del: (id) => api.delete(`/jobs/${id}`).then((r) => r.data),
     setStatus: (id, status) => api.post(`/jobs/${id}/status`, { status }).then((r) => r.data),
@@ -66,6 +68,8 @@ export const Jobs = {
         api.post(`/jobs/${id}/prospects/find`, { count }).then((r) => r.data),
     coverLetter: (id, body = {}) =>
         api.post(`/jobs/${id}/cover-letter`, body).then((r) => r.data),
+    research: (id) => api.post(`/jobs/${id}/research`).then((r) => r.data),
+    interviewAnswers: (id) => api.post(`/jobs/${id}/interview-answers`).then((r) => r.data),
 };
 
 export const Prospects = {
@@ -77,6 +81,7 @@ export const Campaigns = {
     generate: (payload) => api.post("/campaigns/generate", payload).then((r) => r.data),
     send: (id) => api.post("/campaigns/send", { campaign_id: id }).then((r) => r.data),
     followup: (id) => api.post(`/campaigns/${id}/followup`).then((r) => r.data),
+    markReply: (id, payload) => api.post(`/campaigns/${id}/reply`, payload).then((r) => r.data),
 };
 
 export const Skills = {
@@ -89,6 +94,11 @@ export const Resumes = {
     create: (body) => api.post("/resumes", body).then((r) => r.data),
     del: (id) => api.delete(`/resumes/${id}`).then((r) => r.data),
     setDefault: (id) => api.post(`/resumes/${id}/default`).then((r) => r.data),
+};
+
+export const Settings = {
+    get: () => api.get("/settings").then((r) => r.data),
+    update: (payload) => api.post("/settings", payload).then((r) => r.data),
 };
 
 export const Scheduler = {

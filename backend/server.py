@@ -7,7 +7,7 @@
 import os
 import uuid
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, List
 
@@ -64,6 +64,8 @@ class Job(BaseModel):
     match_reason: str = ""
     gaps: List[str] = []
     status: str = "new"  # new, applied, archived
+    company_context: str = ""
+    interview_answers: Optional[List[dict]] = None
     created_at: str
 
 
@@ -78,6 +80,7 @@ class Prospect(BaseModel):
     linkedin: Optional[str] = None
     source: str = "mock"
     confidence: Optional[int] = None
+    priority: Optional[int] = None
     created_at: str
 
 
@@ -94,6 +97,9 @@ class Campaign(BaseModel):
     sent_at: Optional[str] = None
     followup_done: bool = False
     followup_sent_at: Optional[str] = None
+    reply_received: bool = False
+    reply_context: str = ""
+    replied_at: Optional[str] = None
     provider_receipt: Optional[dict] = None
     artifact_url: Optional[str] = None
     created_at: str
@@ -104,6 +110,7 @@ class SkillRow(BaseModel):
     user_id: str
     skill: str
     frequency: int
+    job_ids: List[str] = []
     project_swap_suggestion: str = ""
     created_at: str
 
@@ -127,6 +134,14 @@ class ScrapeRequest(BaseModel):
     limit: int = 6
 
 
+class JobManualIn(BaseModel):
+    title: str
+    company: str
+    url: Optional[str] = None
+    location: Optional[str] = None
+    description: str
+
+
 class GenerateCampaignRequest(BaseModel):
     job_id: str
     prospect_id: Optional[str] = None
@@ -145,6 +160,17 @@ class CoverLetterRequest(BaseModel):
 
 class ProspectSearchRequest(BaseModel):
     count: int = 3
+
+
+class ReplyMarkRequest(BaseModel):
+    reply_received: bool = True
+    reply_context: str = ""
+
+
+class SettingsIn(BaseModel):
+    followup_days: Optional[int] = None
+    apply_after_days: Optional[int] = None
+    signature: Optional[str] = None
 
 
 # -------------------- Auth helpers --------------------
@@ -205,6 +231,16 @@ def _iso(dt: Optional[datetime] = None) -> str:
     return (dt or datetime.now(timezone.utc)).isoformat()
 
 
+DEFAULT_SETTINGS = {"followup_days": 3, "apply_after_days": 7, "signature": ""}
+
+
+async def _get_user_settings(user_id: str) -> dict:
+    doc = await db.user_settings.find_one({"user_id": user_id}, {"_id": 0})
+    if not doc:
+        return dict(DEFAULT_SETTINGS)
+    return {**DEFAULT_SETTINGS, **{k: v for k, v in doc.items() if k in DEFAULT_SETTINGS}}
+
+
 # -------------------- Auth routes --------------------
 
 @api.get("/")
@@ -245,9 +281,7 @@ async def auth_session(body: SessionRequest, response: Response):
             "last_login": _iso(),
         })
 
-    expires_at = datetime.now(timezone.utc).replace(microsecond=0)
-    from datetime import timedelta as _td
-    expires_at = expires_at + _td(days=7)
+    expires_at = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=7)
     await db.user_sessions.insert_one({
         "user_id": user_id,
         "session_token": session_token,
@@ -293,14 +327,120 @@ async def auth_logout(request: Request, response: Response):
 
 # -------------------- Jobs --------------------
 
+async def _upsert_skills_for_gaps(user_id: str, job_id: str, gaps: list):
+    """Incrementally update `skills` collection when a job is (re)scored.
+    No LLM involved here — just DB writes."""
+    for g in gaps or []:
+        key = (g or "").strip().lower()
+        if not key:
+            continue
+        existing = await db.skills.find_one(
+            {"user_id": user_id, "skill": key}, {"_id": 0}
+        )
+        if existing:
+            job_ids = list({*(existing.get("job_ids") or []), job_id})
+            await db.skills.update_one(
+                {"user_id": user_id, "skill": key},
+                {"$set": {"frequency": len(job_ids), "job_ids": job_ids}},
+            )
+        else:
+            await db.skills.insert_one({
+                "id": f"skill_{uuid.uuid4().hex[:10]}",
+                "user_id": user_id,
+                "skill": key,
+                "frequency": 1,
+                "job_ids": [job_id],
+                "project_swap_suggestion": "",
+                "created_at": _iso(),
+            })
+
+
+async def _remove_job_from_skills(user_id: str, job_id: str):
+    """When a job is deleted, remove it from skills.job_ids and recompute frequency."""
+    async for s in db.skills.find({"user_id": user_id, "job_ids": job_id}, {"_id": 0}):
+        job_ids = [jid for jid in (s.get("job_ids") or []) if jid != job_id]
+        if not job_ids:
+            await db.skills.delete_one({"user_id": user_id, "skill": s["skill"]})
+        else:
+            await db.skills.update_one(
+                {"user_id": user_id, "skill": s["skill"]},
+                {"$set": {"job_ids": job_ids, "frequency": len(job_ids)}},
+            )
+
+
+@api.post("/jobs")
+async def add_job_manual(body: JobManualIn, user: dict = Depends(require_user)):
+    """Add a single job manually (URL + JD). Scores it with Haiku + auto-aggregates skills."""
+    uid = user["user_id"]
+    # Dedup by URL if provided
+    if body.url:
+        existing = await db.jobs.find_one({"user_id": uid, "url": body.url}, {"_id": 0})
+        if existing:
+            raise HTTPException(status_code=409, detail="Job with this URL already exists")
+    profile = await get_candidate_profile(uid)
+    payload = [{
+        "title": body.title, "company": body.company, "description": body.description,
+    }]
+    scores = await ai_service.score_jobs_batch(payload, profile)
+    s = scores[0] if scores else {"score": 0, "match_reason": "", "gaps": []}
+    job_id = f"job_{uuid.uuid4().hex[:12]}"
+    doc = {
+        "id": job_id,
+        "user_id": uid,
+        "title": body.title,
+        "company": body.company,
+        "url": body.url,
+        "location": body.location,
+        "description": body.description,
+        "score": int(s.get("score", 0)),
+        "match_reason": s.get("match_reason", ""),
+        "gaps": s.get("gaps", []),
+        "status": "new",
+        "company_context": "",
+        "interview_answers": None,
+        "created_at": _iso(),
+    }
+    await db.jobs.insert_one(dict(doc))
+    await _upsert_skills_for_gaps(uid, job_id, doc["gaps"])
+    return doc
+
+
+@api.post("/jobs/{job_id}/score")
+async def rescore_job(job_id: str, user: dict = Depends(require_user)):
+    uid = user["user_id"]
+    job = await db.jobs.find_one({"id": job_id, "user_id": uid}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    profile = await get_candidate_profile(uid)
+    # Remove old gaps from skills first (so frequency is accurate)
+    await _remove_job_from_skills(uid, job_id)
+    payload = [{
+        "title": job.get("title", ""), "company": job.get("company", ""),
+        "description": job.get("description", ""),
+    }]
+    scores = await ai_service.score_jobs_batch(payload, profile)
+    s = scores[0] if scores else {"score": 0, "match_reason": "", "gaps": []}
+    updates = {
+        "score": int(s.get("score", 0)),
+        "match_reason": s.get("match_reason", ""),
+        "gaps": s.get("gaps", []),
+    }
+    await db.jobs.update_one({"id": job_id, "user_id": uid}, {"$set": updates})
+    await _upsert_skills_for_gaps(uid, job_id, updates["gaps"])
+    updated = {**job, **updates}
+    return updated
+
+
 @api.post("/jobs/scrape")
 async def scrape_jobs(body: ScrapeRequest, user: dict = Depends(require_user)):
+    """Bulk-add sample jobs (kept for demo/testing). In production, users would add jobs manually via POST /api/jobs."""
+    uid = user["user_id"]
     scraped = mock_scraper.mock_scrape_jobs(limit=body.limit)
-    profile = await get_candidate_profile(user["user_id"])
+    profile = await get_candidate_profile(uid)
 
     # Dedup (no LLM) against existing jobs by url
     existing_urls = set()
-    async for j in db.jobs.find({"user_id": user["user_id"]}, {"_id": 0, "url": 1}):
+    async for j in db.jobs.find({"user_id": uid}, {"_id": 0, "url": 1}):
         if j.get("url"):
             existing_urls.add(j["url"])
     fresh = [j for j in scraped if j.get("url") not in existing_urls]
@@ -313,9 +453,10 @@ async def scrape_jobs(body: ScrapeRequest, user: dict = Depends(require_user)):
     inserted = []
     now = _iso()
     for j, s in zip(fresh, scores):
+        job_id = f"job_{uuid.uuid4().hex[:12]}"
         doc = {
-            "id": f"job_{uuid.uuid4().hex[:12]}",
-            "user_id": user["user_id"],
+            "id": job_id,
+            "user_id": uid,
             "title": j["title"],
             "company": j["company"],
             "url": j.get("url"),
@@ -325,9 +466,12 @@ async def scrape_jobs(body: ScrapeRequest, user: dict = Depends(require_user)):
             "match_reason": s.get("match_reason", ""),
             "gaps": s.get("gaps", []),
             "status": "new",
+            "company_context": "",
+            "interview_answers": None,
             "created_at": now,
         }
         await db.jobs.insert_one(dict(doc))
+        await _upsert_skills_for_gaps(uid, job_id, doc["gaps"])
         inserted.append(doc)
     return {
         "inserted": len(inserted),
@@ -352,9 +496,13 @@ async def get_job(job_id: str, user: dict = Depends(require_user)):
 
 @api.delete("/jobs/{job_id}")
 async def delete_job(job_id: str, user: dict = Depends(require_user)):
-    res = await db.jobs.delete_one({"id": job_id, "user_id": user["user_id"]})
-    await db.prospects.delete_many({"job_id": job_id, "user_id": user["user_id"]})
-    await db.campaigns.delete_many({"job_id": job_id, "user_id": user["user_id"]})
+    uid = user["user_id"]
+    res = await db.jobs.delete_one({"id": job_id, "user_id": uid})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await db.prospects.delete_many({"job_id": job_id, "user_id": uid})
+    await db.campaigns.delete_many({"job_id": job_id, "user_id": uid})
+    await _remove_job_from_skills(uid, job_id)
     return {"deleted": res.deleted_count}
 
 
@@ -370,6 +518,38 @@ async def update_job_status(job_id: str, body: dict, user: dict = Depends(requir
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"ok": True, "status": status}
+
+
+@api.post("/jobs/{job_id}/research")
+async def research_company(job_id: str, user: dict = Depends(require_user)):
+    """Fetch (mocked) company vision/mission → stored in job.company_context."""
+    uid = user["user_id"]
+    job = await db.jobs.find_one({"id": job_id, "user_id": uid}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    context = mock_scraper.mock_company_context(job["company"])
+    await db.jobs.update_one(
+        {"id": job_id, "user_id": uid},
+        {"$set": {"company_context": context}},
+    )
+    return {"company_context": context}
+
+
+@api.post("/jobs/{job_id}/interview-answers")
+async def interview_answers(job_id: str, user: dict = Depends(require_user)):
+    """Generate suggested interview answers via Sonnet using stored company_context + JD + resume."""
+    uid = user["user_id"]
+    job = await db.jobs.find_one({"id": job_id, "user_id": uid}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    profile = await get_candidate_profile(uid)
+    context = job.get("company_context") or mock_scraper.mock_company_context(job["company"])
+    qas = await ai_service.generate_interview_answers(job, context, profile)
+    await db.jobs.update_one(
+        {"id": job_id, "user_id": uid},
+        {"$set": {"interview_answers": qas, "company_context": context}},
+    )
+    return {"interview_answers": qas, "company_context": context}
 
 
 # -------------------- Prospects --------------------
@@ -394,6 +574,7 @@ async def find_prospects(job_id: str, body: ProspectSearchRequest, user: dict = 
             "linkedin": p.get("linkedin"),
             "source": p.get("source", "mock"),
             "confidence": p.get("confidence"),
+            "priority": p.get("priority"),
             "created_at": now,
         }
         await db.prospects.insert_one(dict(doc))
@@ -456,6 +637,9 @@ async def generate_campaign(body: GenerateCampaignRequest, user: dict = Depends(
         "sent_at": None,
         "followup_done": False,
         "followup_sent_at": None,
+        "reply_received": False,
+        "reply_context": "",
+        "replied_at": None,
         "provider_receipt": None,
         "artifact_url": None,
         "created_at": now,
@@ -512,6 +696,9 @@ async def manual_followup(campaign_id: str, user: dict = Depends(require_user)):
         "sent_at": now,
         "followup_done": True,
         "followup_sent_at": None,
+        "reply_received": False,
+        "reply_context": "",
+        "replied_at": None,
         "provider_receipt": receipt,
         "artifact_url": None,
         "created_at": now,
@@ -524,9 +711,46 @@ async def manual_followup(campaign_id: str, user: dict = Depends(require_user)):
     return doc
 
 
+@api.post("/campaigns/{campaign_id}/reply")
+async def mark_reply(campaign_id: str, body: ReplyMarkRequest, user: dict = Depends(require_user)):
+    """Mark whether a prospect replied to this campaign + store reply context."""
+    uid = user["user_id"]
+    camp = await db.campaigns.find_one({"id": campaign_id, "user_id": uid}, {"_id": 0})
+    if not camp:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    now = _iso()
+    updates = {
+        "reply_received": bool(body.reply_received),
+        "reply_context": body.reply_context or "",
+        "replied_at": now if body.reply_received else None,
+    }
+    await db.campaigns.update_one({"id": campaign_id, "user_id": uid}, {"$set": updates})
+    return {**camp, **updates}
+
+
 @api.get("/campaigns")
 async def list_campaigns(user: dict = Depends(require_user)):
-    items = await db.campaigns.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    uid = user["user_id"]
+    items = await db.campaigns.find({"user_id": uid}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    settings = await _get_user_settings(uid)
+    apply_after = settings.get("apply_after_days", 7)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=apply_after)
+    for c in items:
+        c["should_apply_prompt"] = False
+        if (
+            c.get("type") == "email"
+            and c.get("followup_done")
+            and c.get("followup_sent_at")
+            and not c.get("reply_received")
+        ):
+            try:
+                fs = datetime.fromisoformat(c["followup_sent_at"])
+                if fs.tzinfo is None:
+                    fs = fs.replace(tzinfo=timezone.utc)
+                if fs < cutoff:
+                    c["should_apply_prompt"] = True
+            except (ValueError, TypeError):
+                pass
     return items
 
 
@@ -563,11 +787,19 @@ async def create_cover_letter(job_id: str, body: CoverLetterRequest, user: dict 
         "sent_at": None,
         "followup_done": True,  # cover letters don't trigger follow-ups
         "followup_sent_at": None,
+        "reply_received": False,
+        "reply_context": "",
+        "replied_at": None,
         "provider_receipt": None,
         "artifact_url": gcs.get("signed_url"),
         "created_at": now,
     }
     await db.campaigns.insert_one(dict(doc))
+    # Persist company_context on the job for reuse (interview answers)
+    await db.jobs.update_one(
+        {"id": job_id, "user_id": user["user_id"]},
+        {"$set": {"company_context": company_context}},
+    )
     return {"campaign": doc, "storage": gcs}
 
 
@@ -575,31 +807,37 @@ async def create_cover_letter(job_id: str, body: CoverLetterRequest, user: dict 
 
 @api.post("/skills/aggregate")
 async def aggregate_skills(user: dict = Depends(require_user)):
-    """Aggregate gap frequency across user's jobs, then get Haiku project-swap suggestions."""
-    freq: dict[str, int] = {}
-    async for j in db.jobs.find({"user_id": user["user_id"]}, {"_id": 0, "gaps": 1}):
+    """Rebuild skills from current jobs (preserves job_ids[]) and runs Haiku for project-swap suggestions."""
+    uid = user["user_id"]
+    # Build skill → {count, job_ids} from current jobs
+    tally: dict[str, dict] = {}
+    async for j in db.jobs.find({"user_id": uid}, {"_id": 0, "id": 1, "gaps": 1}):
         for g in j.get("gaps", []) or []:
             key = (g or "").strip().lower()
             if not key:
                 continue
-            freq[key] = freq.get(key, 0) + 1
-    if not freq:
+            entry = tally.setdefault(key, {"count": 0, "job_ids": []})
+            entry["count"] += 1
+            if j["id"] not in entry["job_ids"]:
+                entry["job_ids"].append(j["id"])
+    if not tally:
+        await db.skills.delete_many({"user_id": uid})
         return {"inserted": 0, "skills": []}
-    top = sorted(freq.items(), key=lambda x: -x[1])[:12]
-    payload = [{"skill": s, "frequency": n} for s, n in top]
+    top = sorted(tally.items(), key=lambda x: -x[1]["count"])[:12]
+    payload = [{"skill": s, "frequency": v["count"]} for s, v in top]
     swaps = await ai_service.suggest_project_swaps(payload)
     swap_map = {(s.get("skill") or "").strip().lower(): s.get("project_swap_suggestion", "") for s in swaps}
 
-    # Clear previous and reinsert fresh snapshot
-    await db.skills.delete_many({"user_id": user["user_id"]})
+    await db.skills.delete_many({"user_id": uid})
     now = _iso()
     rows = []
-    for skill, n in top:
+    for skill, v in top:
         doc = {
             "id": f"skill_{uuid.uuid4().hex[:10]}",
-            "user_id": user["user_id"],
+            "user_id": uid,
             "skill": skill,
-            "frequency": n,
+            "frequency": v["count"],
+            "job_ids": v["job_ids"],
             "project_swap_suggestion": swap_map.get(skill, ""),
             "created_at": now,
         }
@@ -659,12 +897,14 @@ async def set_default_resume(resume_id: str, user: dict = Depends(require_user))
 
 @api.get("/scheduler/status")
 async def scheduler_status(user: dict = Depends(require_user)):
-    from datetime import timedelta
-    cutoff = datetime.now(timezone.utc) - timedelta(days=scheduler_service.FOLLOWUP_DAYS)
+    uid = user["user_id"]
+    settings = await _get_user_settings(uid)
+    followup_days = settings.get("followup_days", 3)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=followup_days)
     pending = 0
     due = 0
     async for c in db.campaigns.find(
-        {"user_id": user["user_id"], "followup_done": False, "type": "email", "status": "sent"},
+        {"user_id": uid, "followup_done": False, "type": "email", "status": "sent"},
         {"_id": 0, "sent_at": 1},
     ):
         pending += 1
@@ -682,7 +922,8 @@ async def scheduler_status(user: dict = Depends(require_user)):
     return {
         "pending_followups": pending,
         "due_now": due,
-        "followup_after_days": scheduler_service.FOLLOWUP_DAYS,
+        "followup_after_days": followup_days,
+        "apply_after_days": settings.get("apply_after_days", 7),
         "poll_minutes": scheduler_service.POLL_MINUTES,
     }
 
@@ -691,6 +932,27 @@ async def scheduler_status(user: dict = Depends(require_user)):
 async def scheduler_run(user: dict = Depends(require_user)):
     summary = await scheduler_service.run_followup_sweep(db)
     return summary
+
+
+# -------------------- Settings --------------------
+
+@api.get("/settings")
+async def get_settings(user: dict = Depends(require_user)):
+    return await _get_user_settings(user["user_id"])
+
+
+@api.post("/settings")
+async def update_settings(body: SettingsIn, user: dict = Depends(require_user)):
+    uid = user["user_id"]
+    updates = {k: v for k, v in body.model_dump(exclude_none=True).items() if k in DEFAULT_SETTINGS}
+    if not updates:
+        return await _get_user_settings(uid)
+    await db.user_settings.update_one(
+        {"user_id": uid},
+        {"$set": {"user_id": uid, **updates, "updated_at": _iso()}},
+        upsert=True,
+    )
+    return await _get_user_settings(uid)
 
 
 # -------------------- Dashboard summary --------------------

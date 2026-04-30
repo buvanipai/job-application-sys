@@ -61,7 +61,7 @@ def primary_user(mongo_db):
     uid, token = _make_user(mongo_db, "primary")
     yield {"user_id": uid, "token": token, "client": _client_for(token)}
     # cleanup
-    for col in ("jobs", "prospects", "campaigns", "skills", "resumes", "user_sessions", "users"):
+    for col in ("jobs", "prospects", "campaigns", "skills", "resumes", "user_settings", "user_sessions", "users"):
         mongo_db[col].delete_many({"user_id": uid})
     mongo_db.users.delete_many({"user_id": uid})
     mongo_db.user_sessions.delete_many({"user_id": uid})
@@ -71,7 +71,7 @@ def primary_user(mongo_db):
 def secondary_user(mongo_db):
     uid, token = _make_user(mongo_db, "secondary")
     yield {"user_id": uid, "token": token, "client": _client_for(token)}
-    for col in ("jobs", "prospects", "campaigns", "skills", "resumes"):
+    for col in ("jobs", "prospects", "campaigns", "skills", "resumes", "user_settings"):
         mongo_db[col].delete_many({"user_id": uid})
     mongo_db.users.delete_many({"user_id": uid})
     mongo_db.user_sessions.delete_many({"user_id": uid})

@@ -28,10 +28,10 @@ export default function AuthCallback() {
         const sessionId = decodeURIComponent(m[1]);
 
         if (PROCESSED.has(sessionId)) {
-            // Already processed in this tab — just go to dashboard, AuthProvider will
+            // Already processed in this tab — just go to Jobs, AuthProvider will
             // pick up the token from localStorage / cookie.
             window.history.replaceState({}, document.title, window.location.pathname);
-            navigate("/dashboard", { replace: true });
+            navigate("/jobs", { replace: true });
             return;
         }
         PROCESSED.add(sessionId);
@@ -41,7 +41,7 @@ export default function AuthCallback() {
                 const user = await authSession(sessionId);
                 setUser(user);
                 window.history.replaceState({}, document.title, window.location.pathname);
-                navigate("/dashboard", { replace: true, state: { user } });
+                navigate("/jobs", { replace: true, state: { user } });
             } catch (e) {
                 console.error("auth callback failed", e);
                 const msg =

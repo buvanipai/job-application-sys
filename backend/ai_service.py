@@ -73,10 +73,13 @@ async def score_jobs_batch(jobs: list[dict], profile: str) -> list[dict]:
     raw = await _chat(HAIKU, system, user_msg)
     parsed = _extract_json(raw)
     results = []
+    # Haiku sometimes returns a single object for a 1-job batch — normalize to list
+    if isinstance(parsed, dict):
+        parsed = [parsed]
     if isinstance(parsed, list):
         by_idx = {int(item.get("index", i)): item for i, item in enumerate(parsed)}
         for i in range(len(jobs)):
-            item = by_idx.get(i, {})
+            item = by_idx.get(i, parsed[i] if i < len(parsed) else {})
             results.append({
                 "score": int(item.get("score", 0) or 0),
                 "match_reason": item.get("match_reason", "") or "",
@@ -179,3 +182,23 @@ async def generate_followup_email(original: dict, job: dict, prospect: dict) -> 
             parsed["subject"] = "Re: " + (original.get("subject", "") or "Following up")
         return parsed
     return {"subject": "Re: " + (original.get("subject", "") or "Following up"), "body": raw.strip()}
+
+
+async def generate_interview_answers(job: dict, company_context: str, profile: str) -> list:
+    """Return [{q, a}] suggested interview Q/A based on company_context + JD + profile."""
+    system = (
+        "You prepare a candidate for a job interview. Produce 5 interview questions that are "
+        "likely to be asked for this exact role/company, with concise suggested answers that "
+        "align with the candidate's profile. Return JSON array: [{q, a}]. JSON only."
+    )
+    user_msg = (
+        f"JOB: {job.get('title')} at {job.get('company')}\n"
+        f"JD:\n{(job.get('description','') or '')[:1200]}\n\n"
+        f"COMPANY CONTEXT:\n{(company_context or '')[:1200]}\n\n"
+        f"CANDIDATE PROFILE:\n{profile[:1500]}\n\nReturn JSON array now."
+    )
+    raw = await _chat(SONNET, system, user_msg)
+    parsed = _extract_json(raw)
+    if isinstance(parsed, list):
+        return [{"q": str(x.get("q", "")), "a": str(x.get("a", ""))} for x in parsed if isinstance(x, dict)]
+    return []

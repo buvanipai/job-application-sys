@@ -1,33 +1,33 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { useState } from "react";
 import {
-    LayoutDashboard,
     Briefcase,
     Users,
     Send,
     Sparkles,
-    FileText,
+    Building2,
     LogOut,
-    CircleDot,
+    Settings as SettingsIcon,
 } from "lucide-react";
+import SettingsDialog from "@/components/SettingsDialog";
 
 const navItems = [
-    { to: "/dashboard", label: "Pipeline", icon: LayoutDashboard, color: "#a491d3", border: "#8170a9" },
     { to: "/jobs", label: "Jobs", icon: Briefcase, color: "#f5f2b8", border: "#c4c193" },
     { to: "/prospects", label: "Prospects", icon: Users, color: "#818aa3", border: "#656c82" },
     { to: "/campaigns", label: "Campaigns", icon: Send, color: "#f9dad0", border: "#c7aea6" },
     { to: "/skills", label: "Skills", icon: Sparkles, color: "#c5dca0", border: "#9db080" },
-    { to: "/resumes", label: "Resumes", icon: FileText, color: "#FFFFFF", border: "#E0E0E0" },
+    { to: "/company-research", label: "Company Research", icon: Building2, color: "#a491d3", border: "#8170a9" },
 ];
 
 export default function Layout({ children }) {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
+    const [settingsOpen, setSettingsOpen] = useState(false);
 
     return (
         <div className="min-h-screen bg-[#FDFCF8] text-[#1A1A1A]">
             <div className="mx-auto max-w-[1400px] px-6 py-6">
-                {/* Header */}
                 <header className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
                         <div
@@ -35,22 +35,25 @@ export default function Layout({ children }) {
                             className="w-9 h-9 rounded-lg flex items-center justify-center font-mono font-bold"
                             style={{ background: "#a491d3", border: "1.5px solid #8170a9" }}
                         >
-                            JP
+                            TP
                         </div>
                         <div>
                             <div className="font-heading text-xl font-extrabold tracking-tight">
-                                Jobpath
+                                Talentpath
                             </div>
                             <div className="font-mono text-[11px] text-jp-sub uppercase tracking-wider">
-                                Pipeline OS
+                                hub &amp; spoke · every action logged
                             </div>
                         </div>
                     </div>
                     <div className="flex items-center gap-3">
-                        <div className="jp-pill" style={{ background: "#f5f2b8", borderColor: "#c4c193" }}>
-                            <CircleDot size={12} />
-                            <span data-testid="user-email">{user?.email}</span>
-                        </div>
+                        <span
+                            className="jp-pill hidden sm:inline-flex"
+                            style={{ background: "#f5f2b8", borderColor: "#c4c193" }}
+                            data-testid="user-email"
+                        >
+                            {user?.email || "—"}
+                        </span>
                         {user?.picture ? (
                             <img
                                 src={user.picture}
@@ -60,6 +63,14 @@ export default function Layout({ children }) {
                                 style={{ border: "1.5px solid #E0E0E0" }}
                             />
                         ) : null}
+                        <button
+                            data-testid="settings-btn"
+                            onClick={() => setSettingsOpen(true)}
+                            className="jp-btn inline-flex items-center gap-2"
+                            style={{ background: "#ffffff", borderColor: "#E0E0E0" }}
+                        >
+                            <SettingsIcon size={16} /> Settings
+                        </button>
                         <button
                             data-testid="logout-btn"
                             onClick={async () => {
@@ -76,23 +87,18 @@ export default function Layout({ children }) {
                     </div>
                 </header>
 
-                {/* Nav */}
                 <nav className="flex gap-2 overflow-x-auto no-scrollbar mb-6">
                     {navItems.map((n) => (
                         <NavLink
                             key={n.to}
                             to={n.to}
-                            data-testid={`nav-${n.label.toLowerCase()}`}
+                            data-testid={`nav-${n.label.toLowerCase().replace(/\s+/g, "-")}`}
                             className={({ isActive }) =>
                                 `jp-btn inline-flex items-center gap-2 whitespace-nowrap ${
                                     isActive ? "" : "opacity-80"
                                 }`
                             }
-                            style={({ isActive } = {}) => ({
-                                background: n.color,
-                                borderColor: n.border,
-                                outline: "none",
-                            })}
+                            style={{ background: n.color, borderColor: n.border }}
                         >
                             <n.icon size={16} />
                             <span>{n.label}</span>
@@ -103,9 +109,11 @@ export default function Layout({ children }) {
                 <main className="animate-fade-up">{children}</main>
 
                 <footer className="mt-16 pb-6 font-mono text-[11px] text-jp-sub uppercase tracking-wider">
-                    jobpath · flat pastel utility · mocked integrations enabled
+                    talentpath · hub-and-spoke pipeline · mocked integrations
                 </footer>
             </div>
+
+            <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         </div>
     );
 }

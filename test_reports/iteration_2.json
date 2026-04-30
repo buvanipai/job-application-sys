@@ -1,0 +1,50 @@
+{
+  "summary": "Backend-only regression + new-feature testing for the Talentpath hub-and-spoke refactor. Re-ran the existing pytest suite (updated 3 assertions for refactor contract changes) and authored 18 new tests covering every new endpoint and computed field. Final result: 39/39 tests pass against the public REACT_APP_BACKEND_URL with Bearer session auth seeded directly in MongoDB.",
+  "scope_covered": [
+    "Regression (test_backend_api.py): GET /api/, /auth/me, /auth/logout, /jobs/scrape (insert+dedup), /jobs CRUD + status, prospect find/list, campaign generate (email+linkedin)+send+followup flow, cover-letter (Sonnet+mock GCS), /skills/aggregate, resume CRUD + is_default uniqueness, /scheduler/status (now includes apply_after_days) + /scheduler/run, dashboard summary, cross-user isolation (DELETE now 404).",
+    "New (test_backend_refactor.py): POST /api/jobs (manual add scoring + skills.job_ids upsert), POST /api/jobs duplicate URL -> 409, POST /api/jobs/{id}/score (rescore + skills frequency recompute, no duplicate job_id, 404 on unknown), POST /api/jobs/{id}/research, POST /api/jobs/{id}/interview-answers, POST /api/campaigns/{id}/reply (toggle on/off + replied_at set/unset, 404), GET /api/settings defaults {3,7,''}, POST /api/settings upsert + scheduler echoes new values, computed should_apply_prompt true when email + followup_done + old followup_sent_at + !reply_received (flips false on reply), DELETE cascade shrinks skills.job_ids and removes empty rows, cross-user 404 on settings/research/interview-answers/reply."
+  ],
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/logout", "issue": "Carried over from iteration 1 but NOT validated this run — relevant for cookie-only test, still works for cookie path."},
+      {"endpoint": "POST /api/campaigns/send & /campaigns/{id}/followup", "issue": "Lookups against db.prospects use {'id': prospect_id} without user_id filter (defensive concern only — prospect_id is on the user-scoped campaign so collision risk is theoretical). Same in scheduler_service.run_followup_sweep."},
+      {"endpoint": "POST /api/scheduler/run", "issue": "Sweeps all users, gated only by auth (any logged-in user triggers a global sweep). Acceptable for MVP, but should be admin-only or per-user."},
+      {"endpoint": "DELETE /api/resumes/{id}", "issue": "Returns {deleted:0} for non-existent IDs (no 404). Also does not auto-promote another resume to default if the deleted one was default."},
+      {"endpoint": "POST /api/jobs (manual add)", "issue": "URL dedup is per-user — fine — but does NOT validate URL format and does not normalize trailing slashes / query params. Two users with the same URL is allowed (per design)."},
+      {"endpoint": "POST /api/jobs/{id}/score", "issue": "Removes job from skills BEFORE rescoring; if scoring fails / returns no gaps, skill rows for this job are silently dropped. Acceptable but worth a comment."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/test_backend_api.py",
+    "/app/backend/tests/test_backend_refactor.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: add user_id filter to db.prospects.find_one calls in /campaigns/send, /campaigns/{id}/followup, scheduler_service.run_followup_sweep.",
+    "Optional: gate POST /api/scheduler/run to admins or scope to caller (currently sweeps across all users).",
+    "Optional: DELETE /api/resumes/{id} should 404 on missing and auto-promote a remaining resume to default if needed.",
+    "Optional: rate-limit Claude-backed endpoints (jobs/scrape, /jobs, /jobs/{id}/score, /campaigns/generate, cover-letter, interview-answers) to protect EMERGENT_LLM_KEY budget."
+  ],
+  "critical_code_review_comments": [
+    "Refactor is clean: delete now 404s on missing, manual job add returns 409 on dup URL, settings collection is per-user with sensible defaults, should_apply_prompt computed lazily on list endpoint, skills.job_ids correctly deduped in _upsert_skills_for_gaps via set union.",
+    "_remove_job_from_skills async-iterates and mutates the same collection (db.skills) it is iterating; works today because Motor's cursor is buffered, but consider .to_list() first to be explicit.",
+    "ai_service.score_jobs_batch now tolerates dict-or-list response — good — but if Haiku returns a partial list (fewer items than jobs), the by_idx fallback uses positional index which can mis-align. Acceptable for now.",
+    "Settings POST silently drops unknown keys (only DEFAULT_SETTINGS keys persisted). Good. But returning the merged settings (not echoing 'updated_at') keeps contract tight.",
+    "DELETE /api/jobs cascade order: jobs row is removed before prospects/campaigns/skills cleanup. If a server crash happens mid-cascade, orphans may remain. Acceptable for MVP; consider transactional cleanup or a janitor job."
+  ],
+  "updated_files": [
+    "/app/backend/tests/conftest.py (added user_settings to teardown)",
+    "/app/backend/tests/test_backend_api.py (DELETE cross-user now expects 404; scheduler/status checks apply_after_days)",
+    "/app/backend/tests/test_backend_refactor.py (NEW — 18 tests for new endpoints)"
+  ],
+  "success_rate": {"backend": "100% (39/39 pytest)", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "Per /app/auth_testing.md — tests seed users + session_tokens directly in test_database.users / user_sessions and call APIs with Authorization: Bearer <token>. No real Google OAuth used.",
+  "seed_data_creation": "Two ephemeral users (primary + secondary) per pytest session; cleaned up in fixture teardown across jobs/prospects/campaigns/skills/resumes/user_settings/users/user_sessions.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Public URL: https://talentpath-app.preview.emergentagent.com. Auth = Bearer session_token (seed via Mongo per /app/auth_testing.md). Test suite is split: tests/test_backend_api.py (regression) + tests/test_backend_refactor.py (new endpoints). Rerun: pytest /app/backend/tests/ -v. AI calls go through emergentintegrations using EMERGENT_LLM_KEY — the load_dotenv ordering fix from iteration 1 is still required (ai_service.py loads its own .env at import). Frontend was NOT tested.",
+  "rca of the issue": "No bugs found this iteration. Iteration-1 RCA still applies: ai_service.py must call load_dotenv(BACKEND/.env) at import (and read EMERGENT_LLM_KEY lazily) because server.py imports it before the explicit load_dotenv call — both safeguards are in place and verified."
+}
