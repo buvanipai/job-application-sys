@@ -198,7 +198,8 @@ class TestGmailEndpoints:
         r = primary_user["client"].post(f"{base_url}/api/gmail/poll")
         assert r.status_code == 200
         d = r.json()
-        assert d == {"fetched": 0, "processed": 0}
+        assert d.get("fetched") == 0
+        assert d.get("processed") == 0
 
     def test_simulate_reply_404_unknown_campaign(self, primary_user, base_url):
         r = primary_user["client"].post(

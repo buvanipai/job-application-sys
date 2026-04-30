@@ -58,18 +58,21 @@ def classify_reply(body: str, subject: Optional[str] = "") -> str:
     return "replied"
 
 
-async def process_incoming_reply(db, reply: dict) -> dict:
+async def process_incoming_reply(db, reply: dict, user_id: Optional[str] = None) -> dict:
     """Match an incoming reply (from Gmail) to a campaign by prospect email + update it.
+    If `user_id` is provided, restrict prospect/campaign lookups to that user
+    (required once real Gmail OAuth is wired so replies attribute to the correct tenant).
     Returns a summary dict: {matched: bool, campaign_id, reply_status, ...}.
     """
     from_email = (reply.get("from_email") or "").strip().lower()
     if not from_email:
         return {"matched": False, "reason": "no from_email"}
-    # Find the most-recent prospect for this email across all users (non-LLM DB lookup)
-    prospect = await db.prospects.find_one({"email": from_email}, {"_id": 0}, sort=[("created_at", -1)])
+    prospect_q = {"email": from_email}
+    if user_id:
+        prospect_q["user_id"] = user_id
+    prospect = await db.prospects.find_one(prospect_q, {"_id": 0}, sort=[("created_at", -1)])
     if not prospect:
         return {"matched": False, "reason": "no prospect"}
-    # Find the most-recent sent email campaign to this prospect
     camp = await db.campaigns.find_one(
         {
             "user_id": prospect["user_id"],
@@ -85,7 +88,7 @@ async def process_incoming_reply(db, reply: dict) -> dict:
     status = classify_reply(reply.get("body", ""), reply.get("subject", ""))
     now = datetime.now(timezone.utc).isoformat()
     await db.campaigns.update_one(
-        {"id": camp["id"]},
+        {"id": camp["id"], "user_id": camp["user_id"]},
         {
             "$set": {
                 "reply_received": True,
@@ -95,7 +98,6 @@ async def process_incoming_reply(db, reply: dict) -> dict:
             }
         },
     )
-    # Also log the raw reply for audit
     await db.gmail_replies.insert_one({
         "user_id": prospect["user_id"],
         "campaign_id": camp["id"],
@@ -139,7 +141,7 @@ async def run_gmail_poll(db) -> dict:
         try:
             replies = await fetch_replies_for_user(db, uid)
             for r in replies:
-                res = await process_incoming_reply(db, r)
+                res = await process_incoming_reply(db, r, user_id=uid)
                 if res.get("matched"):
                     processed += 1
         except Exception as e:

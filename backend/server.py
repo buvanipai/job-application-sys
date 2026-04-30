@@ -1047,10 +1047,10 @@ async def gmail_poll_manual(user: dict = Depends(require_user)):
     replies = await gmail_service.fetch_replies_for_user(db, uid)
     processed = 0
     for r in replies:
-        res = await gmail_service.process_incoming_reply(db, r)
+        res = await gmail_service.process_incoming_reply(db, r, user_id=uid)
         if res.get("matched"):
             processed += 1
-    return {"fetched": len(replies), "processed": processed}
+    return {"fetched": len(replies), "processed": processed, "mocked": True}
 
 
 @api.post("/gmail/simulate-reply")
@@ -1078,7 +1078,7 @@ async def gmail_simulate_reply(body: GmailSimulateRequest, user: dict = Depends(
         }
     else:
         reply = mock_scraper.mock_gmail_synthesize_reply(prospect, camp, body.status)
-    result = await gmail_service.process_incoming_reply(db, reply)
+    result = await gmail_service.process_incoming_reply(db, reply, user_id=uid)
     return {"reply_injected": reply, "result": result}
 
 

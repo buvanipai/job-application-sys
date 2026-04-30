@@ -1,50 +1,70 @@
-# Talentpath — Hub-and-Spoke Job Application Pipeline (PRD)
+# Talentpath — Hub-and-Spoke Job Pipeline (PRD, iteration 3)
 
 ## Original problem statement
-Full-stack job application pipeline — refactored from sequential pipeline to hub-and-spoke.
-5 tabs (Jobs, Prospects, Campaigns, Skills, Company Research). Every action logs to DB.
-User can jump to any tab in any order. Non-blocking.
+Full-stack job application pipeline — hub-and-spoke: 5 tabs, every action logs immediately, user can jump to any tab in any order. Non-blocking.
+Gmail inbox monitoring auto-classifies replies. Single-input Add Job form. Chrome extension for one-click capture from any job board.
 
 ## Architecture
-- DB: MongoDB — collections: users, user_sessions, jobs, prospects, campaigns, skills, resumes, user_settings
-- LLMs via Emergent Universal Key: Haiku 4.5 (scoring, swaps, routing — non-LLM work is DB/scraping/scheduling), Sonnet 4.5 (email, cover letter, LinkedIn notes, interview answers)
-- Auth: Emergent-managed Google Auth, cookie + localStorage Bearer fallback, 7-day session
-- Scheduler: APScheduler per-user `followup_days` (defaults 3), `apply_after_days` (defaults 7) — triggers follow-up then flags `should_apply_prompt`
-- MOCKED: Playwright scraping, Apify + Hunter.io + Vibe Prospecting MCP, Gmail SMTP send, GCS PDF storage, Company research
+- DB: MongoDB — users, user_sessions, jobs, prospects, campaigns, skills, resumes, user_settings, **gmail_replies**
+- LLMs via Emergent Universal Key: Haiku 4.5 for scoring, routing, gap extraction, JD field extraction; Sonnet 4.5 for email/cover-letter/LinkedIn/follow-up/interview answers
+- Keyword-based (NO LLM) reply classifier: ack | rejected | progressing | replied
+- Auth: Emergent-managed Google Auth (cookie + localStorage Bearer fallback, 7-day session)
+- Scheduler: APScheduler — follow-up sweep (per-user `followup_days`), Gmail inbox poll (every 15m, stub until real OAuth)
+- MOCKED: Playwright URL fetch, Apify + Hunter + Vibe Prospecting MCP, Gmail inbox polling, Gmail SMTP send, GCS PDF storage, Company research
+- Chrome Extension (MV3): scrapes active tab → POSTs to `/api/jobs/ingest` with Bearer token
 
-## Data model (extended)
-- `jobs`: id, user_id, title, company, url, location, description, score, match_reason, gaps[], status, **company_context**, **interview_answers[]**, created_at
-- `prospects`: id, user_id, **job_id**, name, role, company, email, linkedin, source, confidence, **priority**, created_at
-- `campaigns`: id, user_id, **job_id, prospect_id**, parent_campaign_id, type (email|linkedin|cover_letter|followup), subject, body, status, sent_at, followup_done, followup_sent_at, **reply_received, reply_context, replied_at**, artifact_url, provider_receipt, created_at — plus computed `should_apply_prompt`
-- `skills`: id, user_id, skill, frequency, **job_ids[]**, project_swap_suggestion, created_at
-- `resumes`: id, user_id, name, content, is_default, created_at
-- `user_settings` (new): user_id, followup_days (3), apply_after_days (7), signature, updated_at
+## Job model (MongoDB sample)
+```json
+{
+  "id": "job_9aa85a0bbd44",
+  "user_id": "user_abc123",
+  "title": "Senior Backend Engineer",
+  "company": "Parallax Systems",
+  "url": "https://jobs.parallax.io/senior-backend-engineer",
+  "location": "Remote • US",
+  "description": "Build high-throughput Python services...",
+  "status": "new",
+  "source": "url",  // url | paste | seed | manual
+  "created_at": "2026-04-30T03:25:32+00:00",
 
-## Implemented (2026-02, v2 refactor)
-- ✅ Manual job add via `POST /api/jobs` (URL+JD → Haiku scores → auto-upserts skills.job_ids[])
-- ✅ Rescore existing job (`POST /api/jobs/{id}/score`) — recomputes skills
-- ✅ Company research (`POST /api/jobs/{id}/research`) — stores context on job
-- ✅ Interview Q&A (`POST /api/jobs/{id}/interview-answers`) — Sonnet, uses context+JD+resume
-- ✅ Reply tracking (`POST /api/campaigns/{id}/reply`) — toggle, context, replied_at
-- ✅ User-configurable follow-up days & apply-prompt days (`GET/POST /api/settings`)
-- ✅ Computed `should_apply_prompt` in `GET /api/campaigns` (email + followup_done + !reply + old)
-- ✅ Skills auto-upsert on every scoring (no full rebuild unless you run /skills/aggregate for project swaps)
-- ✅ Frontend: 5 tabs, Add Job form, priority split ≥65 / <65, Settings dialog (resumes + follow-up config), Skills with clickable job chips, Campaigns with reply+apply-prompt UI, Company Research tab w/ per-job vision/mission + interview Q&A
-- ✅ Backend: 39/39 pytest pass (regression + new endpoints), cross-user isolation verified
+  // Canonical (per spec)
+  "match_pct": 88,
+  "missing_skills": ["Kafka", "Distributed systems at scale", "Mentorship track record"],
+  "reason_if_low": "",  // empty when match_pct >= 65
+
+  // Optional
+  "company_context": "",
+  "interview_answers": null,
+
+  // Legacy aliases (still written for backward compat)
+  "score": 88, "gaps": [...], "match_reason": "Strong fit..."
+}
+```
+
+## Endpoints (new this iteration)
+- `POST /api/jobs/ingest` — single-input: URL → mock Playwright fetch; text → Haiku extracts {title, company, location, description}. Scores + upserts skills.
+- `POST /api/gmail/poll` — per-user trigger; returns `{fetched, processed, mocked:true}` until real OAuth.
+- `POST /api/gmail/simulate-reply` — dev helper; body `{campaign_id, status: ack|rejected|progressing|replied, body?}`; classifies & applies.
+- `GET /api/gmail/replies` — audit log of all processed inbox replies (user-scoped).
+
+## Chrome Extension (`/app/extension/`)
+- `manifest.json` (MV3), `popup.html`, `popup.js`, `content.js` (placeholder), `icon.png`, `README.md`
+- User pastes session token once (stored in `chrome.storage.local`). Click button → scrape URL + body text → POST /api/jobs/ingest → green toast with title/company/match %.
+
+## Testing
+- **62/62 pytest pass (100%)** across `test_backend_api.py`, `test_backend_refactor.py`, `test_backend_ingest_gmail.py`.
 
 ## Prioritized backlog
 ### P1
-- Restrict `/api/scheduler/run` to admin or scope to caller
+- Real Gmail API integration (OAuth keys → implement `fetch_replies_for_user`)
 - Rate-limit Claude-backed endpoints
-- DELETE /api/resumes/{id} → 404 on missing + auto-promote new default
-- Add user_id filter to prospect lookups in /campaigns/send, /campaigns/{id}/followup, scheduler sweep
+- Admin-only `/api/scheduler/run`
 
 ### P2
-- Swap MOCKED integrations for real ones when API keys arrive: Apify, Hunter.io, Vibe Prospecting MCP, Gmail OAuth, GCS
-- Webhook-based reply detection (auto-mark reply_received)
-- Analytics: funnel conversion, reply rate, time-to-response
-- Team/workspace multi-user sharing
+- Real Apify / Hunter / Vibe Prospecting MCP / GCS
+- "Copy extension token" button in Settings (one-click provisioning)
+- Webhook-based reply detection (Gmail push) → eliminate polling
 
 ## Next tasks
-- Provide real API keys for Apify / Hunter / Vibe Prospecting / Gmail / GCS to go live
-- Consider Stripe billing (SaaS: free=10 jobs/mo, Pro=unlimited + real integrations)
+- Provide Apify/Hunter/Vibe/Gmail OAuth/GCS keys to go live
+- Consider Stripe (SaaS: free=10 jobs/mo; Pro=unlimited + real integrations)
