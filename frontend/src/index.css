@@ -17,12 +17,12 @@
     --jp-overlay: rgba(0, 0, 0, 0.3);
 }
 html.dark {
-    --jp-bg: #14141a;
-    --jp-surface: #1f1f26;
-    --jp-surface-2: #2a2a33;
-    --jp-line: #34343f;
-    --jp-ink: #ededf0;
-    --jp-sub: #9a9aa5;
+    --jp-bg: #15121d;
+    --jp-surface: #211c2c;
+    --jp-surface-2: #2c2638;
+    --jp-line: #3a3348;
+    --jp-ink: #f1ecdf;
+    --jp-sub: #a59bb1;
     --jp-overlay: rgba(0, 0, 0, 0.6);
     color-scheme: dark;
 }
@@ -193,6 +193,82 @@ html.dark .hover\:bg-black\/5:hover {
 }
 html.dark .bg-black\/30 {
     background-color: var(--jp-overlay) !important;
+}
+
+/* Pastel blocks are light backgrounds — keep dark text inside them so contrast
+   stays correct in dark mode. Match by inline-styled bg color (hex + rgb). */
+html.dark [style*="background: #a491d3"],
+html.dark [style*="background:#a491d3"],
+html.dark [style*="background: rgb(164, 145, 211)"],
+html.dark [style*="background: #818aa3"],
+html.dark [style*="background:#818aa3"],
+html.dark [style*="background: rgb(129, 138, 163)"],
+html.dark [style*="background: #c5dca0"],
+html.dark [style*="background:#c5dca0"],
+html.dark [style*="background: rgb(197, 220, 160)"],
+html.dark [style*="background: #f5f2b8"],
+html.dark [style*="background:#f5f2b8"],
+html.dark [style*="background: rgb(245, 242, 184)"],
+html.dark [style*="background: #f9dad0"],
+html.dark [style*="background:#f9dad0"],
+html.dark [style*="background: rgb(249, 218, 208)"] {
+    color: #1a1a1a !important;
+}
+html.dark [style*="background: #a491d3"] *,
+html.dark [style*="background:#a491d3"] *,
+html.dark [style*="background: rgb(164, 145, 211)"] *,
+html.dark [style*="background: #818aa3"] *,
+html.dark [style*="background:#818aa3"] *,
+html.dark [style*="background: rgb(129, 138, 163)"] *,
+html.dark [style*="background: #c5dca0"] *,
+html.dark [style*="background:#c5dca0"] *,
+html.dark [style*="background: rgb(197, 220, 160)"] *,
+html.dark [style*="background: #f5f2b8"] *,
+html.dark [style*="background:#f5f2b8"] *,
+html.dark [style*="background: rgb(245, 242, 184)"] *,
+html.dark [style*="background: #f9dad0"] *,
+html.dark [style*="background:#f9dad0"] *,
+html.dark [style*="background: rgb(249, 218, 208)"] * {
+    color: #1a1a1a !important;
+}
+/* but DO let nested .jp-card/.jp-input/.jp-pill keep their own bg/text */
+html.dark [style*="background: #a491d3"] .jp-card,
+html.dark [style*="background: #818aa3"] .jp-card,
+html.dark [style*="background: #c5dca0"] .jp-card,
+html.dark [style*="background: #f5f2b8"] .jp-card,
+html.dark [style*="background: #f9dad0"] .jp-card,
+html.dark [style*="background: #a491d3"] .jp-input,
+html.dark [style*="background: #818aa3"] .jp-input,
+html.dark [style*="background: #c5dca0"] .jp-input,
+html.dark [style*="background: #f5f2b8"] .jp-input,
+html.dark [style*="background: #f9dad0"] .jp-input {
+    background: var(--jp-surface) !important;
+    color: var(--jp-ink) !important;
+    border-color: var(--jp-line) !important;
+}
+/* Neutral-white .jp-btn nested inside a pastel container: force readable
+   ink color (dark theme already flipped its bg to surface-2 above). */
+html.dark [style*="background: #a491d3"] .jp-btn[style*="#ffffff"],
+html.dark [style*="background: #a491d3"] .jp-btn[style*="#FFFFFF"],
+html.dark [style*="background: #818aa3"] .jp-btn[style*="#ffffff"],
+html.dark [style*="background: #818aa3"] .jp-btn[style*="#FFFFFF"],
+html.dark [style*="background: #c5dca0"] .jp-btn[style*="#ffffff"],
+html.dark [style*="background: #c5dca0"] .jp-btn[style*="#FFFFFF"],
+html.dark [style*="background: #f5f2b8"] .jp-btn[style*="#ffffff"],
+html.dark [style*="background: #f5f2b8"] .jp-btn[style*="#FFFFFF"],
+html.dark [style*="background: #f9dad0"] .jp-btn[style*="#ffffff"],
+html.dark [style*="background: #f9dad0"] .jp-btn[style*="#FFFFFF"],
+html.dark [style*="background: #a491d3"] .jp-btn[style*="#ffffff"] *,
+html.dark [style*="background: #a491d3"] .jp-btn[style*="#FFFFFF"] *,
+html.dark [style*="background: #818aa3"] .jp-btn[style*="#ffffff"] *,
+html.dark [style*="background: #818aa3"] .jp-btn[style*="#FFFFFF"] *,
+html.dark [style*="background: #c5dca0"] .jp-btn[style*="#ffffff"] *,
+html.dark [style*="background: #c5dca0"] .jp-btn[style*="#FFFFFF"] *,
+html.dark [style*="background: #f5f2b8"] .jp-btn[style*="#ffffff"] *,
+html.dark [style*="background: #f5f2b8"] .jp-btn[style*="#FFFFFF"] *,
+html.dark [style*="background: #f9dad0"] .jp-btn[style*="#ffffff"] *,
+html.dark [style*="background: #f9dad0"] .jp-btn[style*="#FFFFFF"] * {
+    color: var(--jp-ink) !important;
 }
 
 [data-debug-wrapper="true"] {

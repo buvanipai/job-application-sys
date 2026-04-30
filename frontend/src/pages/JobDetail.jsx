@@ -3,7 +3,7 @@ import Layout from "@/components/Layout";
 import { Jobs, Campaigns } from "@/lib/api";
 import { useParams, useNavigate } from "react-router-dom";
 import { ScoreBadge, campaignTypeStyle } from "@/pages/Dashboard";
-import { Search, Mail, Linkedin, FileText, Send, Clock, ArrowLeft, Check } from "lucide-react";
+import { Search, Mail, Linkedin, FileText, Send, Clock, ArrowLeft, Check, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 
 export default function JobDetail() {
@@ -61,6 +61,29 @@ export default function JobDetail() {
             await load();
         } catch {
             toast.error("Cover letter failed.");
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const answerQuestions = async () => {
+        setBusy(true);
+        try {
+            const res = await Jobs.interviewAnswers(id);
+            setJob((j) =>
+                j
+                    ? {
+                          ...j,
+                          interview_answers: res.interview_answers,
+                          company_context: res.company_context || j.company_context,
+                      }
+                    : j
+            );
+            toast.success(
+                `Drafted ${res.interview_answers?.length ?? 0} interview answers (Sonnet).`
+            );
+        } catch (e) {
+            toast.error(e?.response?.data?.detail || "Interview generation failed.");
         } finally {
             setBusy(false);
         }

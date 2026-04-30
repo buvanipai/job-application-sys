@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Resumes, Settings } from "@/lib/api";
 import { toast } from "sonner";
-import { X, Star, Trash2, Save } from "lucide-react";
+import { X, Star, Trash2, Save, Copy, Puzzle } from "lucide-react";
 
 export default function SettingsDialog({ open, onClose }) {
     const [resumes, setResumes] = useState([]);
@@ -84,6 +84,49 @@ export default function SettingsDialog({ open, onClose }) {
                         <X size={16} />
                     </button>
                 </div>
+
+                {/* Browser extension token */}
+                <section
+                    className="rounded-lg p-4 mb-4"
+                    style={{ background: "#a491d3", border: "1.5px solid #8170a9" }}
+                >
+                    <div className="flex items-center gap-2 mb-2">
+                        <Puzzle size={14} />
+                        <div className="font-mono text-[11px] uppercase tracking-wider">
+                            chrome extension
+                        </div>
+                    </div>
+                    <p className="text-sm mb-3" style={{ color: "var(--jp-ink)" }}>
+                        Copy your session token, paste it once into the Talentpath browser
+                        extension, and capture any job posting in one click.
+                    </p>
+                    <button
+                        data-testid="copy-extension-token-btn"
+                        onClick={async () => {
+                            const token = (() => {
+                                try {
+                                    return localStorage.getItem("jp_session_token") || "";
+                                } catch {
+                                    return "";
+                                }
+                            })();
+                            if (!token) {
+                                toast.error("No session token found. Try logging out and back in.");
+                                return;
+                            }
+                            try {
+                                await navigator.clipboard.writeText(token);
+                                toast.success("Token copied — paste it into the extension popup.");
+                            } catch {
+                                window.prompt("Copy this token:", token);
+                            }
+                        }}
+                        className="jp-btn inline-flex items-center gap-2"
+                        style={{ background: "#f5f2b8", borderColor: "#c4c193" }}
+                    >
+                        <Copy size={14} /> Copy extension token
+                    </button>
+                </section>
 
                 {/* Follow-up config */}
                 <section
