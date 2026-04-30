@@ -1,66 +1,50 @@
-# Jobpath — Job Application Pipeline (PRD)
+# Talentpath — Hub-and-Spoke Job Application Pipeline (PRD)
 
 ## Original problem statement
-Full-stack job application pipeline app with pastel flat UI:
-- Playwright scrape → Haiku score → insert jobs
-- Aggregate gaps → skills + project-swap suggestions
-- Apify + Hunter → prospects
-- Gmail SMTP send → campaigns
-- APScheduler follow-up after N days
-- Optional Sonnet cover letter → GCS PDF per job_id
+Full-stack job application pipeline — refactored from sequential pipeline to hub-and-spoke.
+5 tabs (Jobs, Prospects, Campaigns, Skills, Company Research). Every action logs to DB.
+User can jump to any tab in any order. Non-blocking.
 
-## Architecture decisions
-- DB: MongoDB (platform-native) — collections: users, user_sessions, jobs, prospects, campaigns, skills, resumes
-- LLMs via Emergent Universal Key (emergentintegrations): Haiku 4.5 (scoring, swaps), Sonnet 4.5 (email, LinkedIn, cover letter, follow-up)
-- Auth: Emergent-managed Google Auth (httpOnly cookie + Bearer fallback, 7-day expiry)
-- Scheduler: APScheduler, 5-min poll, 3-day follow-up threshold
-- MOCKED integrations: Playwright scrape (8 sample JDs), Apify+Hunter prospects, Gmail SMTP send, GCS PDF storage
+## Architecture
+- DB: MongoDB — collections: users, user_sessions, jobs, prospects, campaigns, skills, resumes, user_settings
+- LLMs via Emergent Universal Key: Haiku 4.5 (scoring, swaps, routing — non-LLM work is DB/scraping/scheduling), Sonnet 4.5 (email, cover letter, LinkedIn notes, interview answers)
+- Auth: Emergent-managed Google Auth, cookie + localStorage Bearer fallback, 7-day session
+- Scheduler: APScheduler per-user `followup_days` (defaults 3), `apply_after_days` (defaults 7) — triggers follow-up then flags `should_apply_prompt`
+- MOCKED: Playwright scraping, Apify + Hunter.io + Vibe Prospecting MCP, Gmail SMTP send, GCS PDF storage, Company research
 
-## User persona
-Single job-seeker / founder driving their own pipeline end-to-end, multi-user support for teams/collaboration.
+## Data model (extended)
+- `jobs`: id, user_id, title, company, url, location, description, score, match_reason, gaps[], status, **company_context**, **interview_answers[]**, created_at
+- `prospects`: id, user_id, **job_id**, name, role, company, email, linkedin, source, confidence, **priority**, created_at
+- `campaigns`: id, user_id, **job_id, prospect_id**, parent_campaign_id, type (email|linkedin|cover_letter|followup), subject, body, status, sent_at, followup_done, followup_sent_at, **reply_received, reply_context, replied_at**, artifact_url, provider_receipt, created_at — plus computed `should_apply_prompt`
+- `skills`: id, user_id, skill, frequency, **job_ids[]**, project_swap_suggestion, created_at
+- `resumes`: id, user_id, name, content, is_default, created_at
+- `user_settings` (new): user_id, followup_days (3), apply_after_days (7), signature, updated_at
 
-## Core requirements
-- Multi-user Google login
-- One-click scrape → score → insert pipeline
-- Per-job detail: JD, match score, gaps, prospects, campaigns, cover letter
-- Campaign composer (email / LinkedIn) + sender + follow-up
-- Skills dashboard with project-swap suggestions
-- Resume vault with default-resume selector
-- Scheduler status + manual sweep trigger
-
-## What's implemented (2026-02)
-- ✅ Full backend (13 /api routes tested, 21/21 pytest pass)
-- ✅ Auth (cookie + Bearer, cross-user isolation verified)
-- ✅ Jobs: scrape+Haiku scoring, dedup by URL, CRUD, status, cascade delete
-- ✅ Prospects: per-job + global listing
-- ✅ Campaigns: generate (email/linkedin via Sonnet), send (mock Gmail), manual + scheduled follow-up
-- ✅ Cover letter: Sonnet + mock GCS signed URL
-- ✅ Skills: aggregate + project-swap suggestions via Haiku
-- ✅ Resumes: CRUD, default selection
-- ✅ Scheduler: APScheduler 5-min sweep + manual trigger + status
-- ✅ Dashboard summary endpoint
-- ✅ Frontend: Login (Google), Dashboard w/ pipeline visualization, Jobs, JobDetail, Prospects, Campaigns, Skills, Resumes
-- ✅ Pastel flat UI (Sora / DM Sans / JetBrains Mono), no shadows, 1.5px borders, 8px radius, color-coded pipeline stages
+## Implemented (2026-02, v2 refactor)
+- ✅ Manual job add via `POST /api/jobs` (URL+JD → Haiku scores → auto-upserts skills.job_ids[])
+- ✅ Rescore existing job (`POST /api/jobs/{id}/score`) — recomputes skills
+- ✅ Company research (`POST /api/jobs/{id}/research`) — stores context on job
+- ✅ Interview Q&A (`POST /api/jobs/{id}/interview-answers`) — Sonnet, uses context+JD+resume
+- ✅ Reply tracking (`POST /api/campaigns/{id}/reply`) — toggle, context, replied_at
+- ✅ User-configurable follow-up days & apply-prompt days (`GET/POST /api/settings`)
+- ✅ Computed `should_apply_prompt` in `GET /api/campaigns` (email + followup_done + !reply + old)
+- ✅ Skills auto-upsert on every scoring (no full rebuild unless you run /skills/aggregate for project swaps)
+- ✅ Frontend: 5 tabs, Add Job form, priority split ≥65 / <65, Settings dialog (resumes + follow-up config), Skills with clickable job chips, Campaigns with reply+apply-prompt UI, Company Research tab w/ per-job vision/mission + interview Q&A
+- ✅ Backend: 39/39 pytest pass (regression + new endpoints), cross-user isolation verified
 
 ## Prioritized backlog
-### P0
-- Swap MOCKED integrations for real ones when keys arrive (Apify, Hunter.io, Gmail SMTP, GCS)
-
 ### P1
-- Scope /api/scheduler/run to caller or admin-only (currently global)
-- 404 on DELETE /api/jobs/{id} when not found (consistency)
-- Auth logout to honor Bearer header
+- Restrict `/api/scheduler/run` to admin or scope to caller
 - Rate-limit Claude-backed endpoints
+- DELETE /api/resumes/{id} → 404 on missing + auto-promote new default
+- Add user_id filter to prospect lookups in /campaigns/send, /campaigns/{id}/followup, scheduler sweep
 
 ### P2
-- Real Playwright scraper (target boards + selectors)
-- Gmail OAuth instead of SMTP app-password
-- Bulk "apply + generate all" action
-- Analytics: reply-rate, time-to-response, funnel conversion
-- Webhook for reply detection → auto-stop follow-up sequence
+- Swap MOCKED integrations for real ones when API keys arrive: Apify, Hunter.io, Vibe Prospecting MCP, Gmail OAuth, GCS
+- Webhook-based reply detection (auto-mark reply_received)
+- Analytics: funnel conversion, reply rate, time-to-response
 - Team/workspace multi-user sharing
 
 ## Next tasks
-- Wire up real Apify actor + Hunter.io API when user provides keys
-- Real Gmail SMTP or OAuth flow
-- Replace mock GCS with real object storage (our built-in object storage is available)
+- Provide real API keys for Apify / Hunter / Vibe Prospecting / Gmail / GCS to go live
+- Consider Stripe billing (SaaS: free=10 jobs/mo, Pro=unlimited + real integrations)
