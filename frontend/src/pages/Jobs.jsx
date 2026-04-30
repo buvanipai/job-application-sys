@@ -9,8 +9,7 @@ export default function JobsPage() {
     const [jobs, setJobs] = useState([]);
     const [loading, setLoading] = useState(false);
     const [adding, setAdding] = useState(false);
-    const [showAdd, setShowAdd] = useState(false);
-    const [form, setForm] = useState({ title: "", company: "", url: "", location: "", description: "" });
+    const [input, setInput] = useState("");
     const navigate = useNavigate();
 
     const load = async () => setJobs(await Jobs.list());
@@ -19,19 +18,18 @@ export default function JobsPage() {
     }, []);
 
     const addJob = async () => {
-        if (!form.title.trim() || !form.company.trim() || !form.description.trim()) {
-            toast.error("Title, company, and JD are required.");
+        if (!input.trim()) {
+            toast.error("Paste a job URL or JD.");
             return;
         }
         setAdding(true);
         try {
-            await Jobs.add(form);
-            toast.success("Job added and scored.");
-            setForm({ title: "", company: "", url: "", location: "", description: "" });
-            setShowAdd(false);
+            const res = await Jobs.ingest(input.trim());
+            toast.success(`Added: ${res.title} @ ${res.company} · ${res.match_pct}% match`);
+            setInput("");
             await load();
         } catch (e) {
-            toast.error(e?.response?.data?.detail || "Add failed.");
+            toast.error(e?.response?.data?.detail || "Ingest failed.");
         } finally {
             setAdding(false);
         }
@@ -65,8 +63,9 @@ export default function JobsPage() {
         await load();
     };
 
-    const high = jobs.filter((j) => j.score >= 65);
-    const low = jobs.filter((j) => j.score < 65);
+    const matchOf = (j) => j.match_pct ?? j.score ?? 0;
+    const high = jobs.filter((j) => matchOf(j) >= 65);
+    const low = jobs.filter((j) => matchOf(j) < 65);
 
     return (
         <Layout>
@@ -76,88 +75,54 @@ export default function JobsPage() {
                         Jobs
                     </h1>
                     <p className="font-mono text-xs uppercase tracking-wider text-jp-sub mt-1">
-                        paste JDs · scored vs your default resume (Haiku 4.5)
+                        paste URL or JD text · auto-extracted &amp; scored (Haiku 4.5)
                     </p>
                 </div>
-                <div className="flex gap-2">
-                    <button
-                        data-testid="jobs-add-toggle"
-                        onClick={() => setShowAdd((v) => !v)}
-                        className="jp-btn inline-flex items-center gap-2"
-                        style={{ background: "#a491d3", borderColor: "#8170a9" }}
-                    >
-                        <Plus size={16} />
-                        {showAdd ? "Close" : "Add job"}
-                    </button>
-                    <button
-                        data-testid="jobs-scrape-btn"
-                        onClick={scrape}
-                        disabled={loading}
-                        className="jp-btn inline-flex items-center gap-2"
-                        style={{ background: "#f5f2b8", borderColor: "#c4c193" }}
-                    >
-                        <Play size={16} /> {loading ? "seeding…" : "Seed samples"}
-                    </button>
-                </div>
+                <button
+                    data-testid="jobs-scrape-btn"
+                    onClick={scrape}
+                    disabled={loading}
+                    className="jp-btn inline-flex items-center gap-2"
+                    style={{ background: "#f5f2b8", borderColor: "#c4c193" }}
+                >
+                    <Play size={16} /> {loading ? "seeding…" : "Seed samples"}
+                </button>
             </div>
 
-            {showAdd ? (
-                <div
-                    className="jp-card p-5 mb-6"
-                    style={{ background: "#f5f2b8", borderColor: "#c4c193" }}
-                    data-testid="add-job-form"
-                >
-                    <div className="font-mono text-[11px] uppercase tracking-wider mb-2">
-                        new job
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <input
-                            data-testid="job-title"
-                            className="jp-input"
-                            placeholder="Title"
-                            value={form.title}
-                            onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                        />
-                        <input
-                            data-testid="job-company"
-                            className="jp-input"
-                            placeholder="Company"
-                            value={form.company}
-                            onChange={(e) => setForm((f) => ({ ...f, company: e.target.value }))}
-                        />
-                        <input
-                            data-testid="job-url"
-                            className="jp-input"
-                            placeholder="Job URL (optional)"
-                            value={form.url}
-                            onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
-                        />
-                        <input
-                            data-testid="job-location"
-                            className="jp-input"
-                            placeholder="Location (optional)"
-                            value={form.location}
-                            onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
-                        />
-                    </div>
-                    <textarea
-                        data-testid="job-description"
-                        className="jp-input mt-3 min-h-[160px]"
-                        placeholder="Paste the full job description here…"
-                        value={form.description}
-                        onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                    />
+            {/* Single-input Add Job form */}
+            <div
+                className="jp-card p-5 mb-6"
+                style={{ background: "#f5f2b8", borderColor: "#c4c193" }}
+                data-testid="add-job-form"
+            >
+                <div className="font-mono text-[11px] uppercase tracking-wider mb-2">
+                    add a job — paste a URL or the raw JD
+                </div>
+                <textarea
+                    data-testid="job-input"
+                    className="jp-input min-h-[120px]"
+                    placeholder="https://jobs.example.com/role  — OR —  paste the full JD text here…"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") addJob();
+                    }}
+                />
+                <div className="flex items-center justify-between mt-3 gap-2">
+                    <span className="font-mono text-[11px] text-jp-sub">
+                        URL → Playwright scrape · text → Haiku extracts title/company/location
+                    </span>
                     <button
                         data-testid="job-add-submit"
                         onClick={addJob}
                         disabled={adding}
-                        className="jp-btn inline-flex items-center gap-2 mt-3"
+                        className="jp-btn inline-flex items-center gap-2"
                         style={{ background: "#a491d3", borderColor: "#8170a9" }}
                     >
                         <Plus size={14} /> {adding ? "scoring…" : "Add + score"}
                     </button>
                 </div>
-            ) : null}
+            </div>
 
             <PrioritySection
                 title="Priority list — high match (≥65%)"
@@ -180,8 +145,8 @@ export default function JobsPage() {
 
             {jobs.length === 0 ? (
                 <div className="jp-card p-10 text-center font-mono text-sm text-jp-sub">
-                    No jobs yet. Click <b>Add job</b> to paste a JD, or <b>Seed samples</b> for demo
-                    data. Make sure to set a default resume in Settings first.
+                    No jobs yet. Paste a URL or JD above — or use <b>Seed samples</b> for demo data.
+                    Set a default resume in Settings first for accurate scoring.
                 </div>
             ) : null}
         </Layout>
@@ -229,6 +194,9 @@ function PrioritySection({ title, subtitle, tone, items, onOpen, onDelete, onRes
 }
 
 function JobCard({ j, tone, onOpen, onDelete, onRescore }) {
+    const match = j.match_pct ?? j.score ?? 0;
+    const missing = j.missing_skills || j.gaps || [];
+    const reason = j.reason_if_low || j.match_reason || "";
     return (
         <div
             data-testid={`job-card-${j.id}`}
@@ -250,7 +218,7 @@ function JobCard({ j, tone, onOpen, onDelete, onRescore }) {
                             : { background: "#f9dad0", borderColor: "#c7aea6" }
                     }
                 >
-                    {j.score}%
+                    {match}%
                 </span>
             </div>
 
@@ -260,7 +228,7 @@ function JobCard({ j, tone, onOpen, onDelete, onRescore }) {
                         what's missing
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                        {(j.gaps || []).slice(0, 6).map((g, i) => (
+                        {missing.slice(0, 6).map((g, i) => (
                             <span
                                 key={i}
                                 className="jp-pill"
@@ -269,14 +237,14 @@ function JobCard({ j, tone, onOpen, onDelete, onRescore }) {
                                 {g}
                             </span>
                         ))}
-                        {(j.gaps || []).length === 0 ? (
+                        {missing.length === 0 ? (
                             <span className="font-mono text-xs text-jp-sub">no gaps detected</span>
                         ) : null}
                     </div>
                 </div>
             ) : (
                 <div className="mt-3 font-mono text-xs text-[#1A1A1A]/80 line-clamp-2">
-                    {j.match_reason || "No reason provided."}
+                    {reason || "No reason provided."}
                 </div>
             )}
 
@@ -300,6 +268,14 @@ function JobCard({ j, tone, onOpen, onDelete, onRescore }) {
                     >
                         <ExternalLink size={12} /> JD
                     </a>
+                ) : null}
+                {j.source ? (
+                    <span
+                        className="jp-pill"
+                        style={{ background: "#FFFFFF", borderColor: "#E0E0E0" }}
+                    >
+                        {j.source}
+                    </span>
                 ) : null}
                 <button
                     data-testid={`delete-job-${j.id}`}

@@ -1,4 +1,4 @@
-"""APScheduler: per-user follow-up sweep driven by user_settings.followup_days."""
+"""APScheduler: follow-up sweep + Gmail inbox poll."""
 import logging
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -6,12 +6,14 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 import ai_service
 import mock_scraper
+import gmail_service
 
 logger = logging.getLogger(__name__)
 
 # Global defaults (used only if a user has no settings row).
 FOLLOWUP_DAYS = 3
 POLL_MINUTES = 5
+GMAIL_POLL_MINUTES = 15
 
 
 def _now():
@@ -107,6 +109,19 @@ def start_scheduler(db) -> AsyncIOScheduler:
         max_instances=1,
         coalesce=True,
     )
+    scheduler.add_job(
+        gmail_service.run_gmail_poll,
+        "interval",
+        minutes=GMAIL_POLL_MINUTES,
+        kwargs={"db": db},
+        id="gmail_poll",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
     scheduler.start()
-    logger.info("APScheduler started (follow-up sweep every %d min)", POLL_MINUTES)
+    logger.info(
+        "APScheduler started · followup sweep %dm · gmail poll %dm",
+        POLL_MINUTES, GMAIL_POLL_MINUTES,
+    )
     return scheduler

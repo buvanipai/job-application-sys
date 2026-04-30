@@ -171,7 +171,7 @@ class TestSettings:
         r = c.get(f"{base_url}/api/settings")
         assert r.status_code == 200
         d = r.json()
-        assert d == {"followup_days": 3, "apply_after_days": 7, "signature": ""}
+        assert d == {"followup_days": 3, "apply_after_days": 7, "gmail_poll_minutes": 15, "signature": ""}
 
     def test_post_upserts_and_persists(self, secondary_user, base_url):
         c = secondary_user["client"]

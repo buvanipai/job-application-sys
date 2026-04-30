@@ -1,0 +1,129 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Talentpath</title>
+    <style>
+      body {
+        font-family:
+          "DM Sans",
+          -apple-system,
+          system-ui,
+          sans-serif;
+        background: #fdfcf8;
+        color: #1a1a1a;
+        margin: 0;
+        padding: 16px;
+        width: 320px;
+      }
+      h1 {
+        font-family: "Sora", system-ui, sans-serif;
+        font-size: 18px;
+        margin: 0 0 4px;
+      }
+      .sub {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 11px;
+        color: #5c5c5c;
+        margin-bottom: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      label {
+        display: block;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        color: #5c5c5c;
+        margin-bottom: 4px;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1.5px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-family: inherit;
+        font-size: 13px;
+      }
+      input:focus {
+        outline: none;
+        border-color: #8170a9;
+      }
+      button {
+        border: 1.5px solid #8170a9;
+        background: #a491d3;
+        border-radius: 8px;
+        padding: 10px 12px;
+        font-family: "Sora", sans-serif;
+        font-weight: 700;
+        font-size: 14px;
+        width: 100%;
+        cursor: pointer;
+        margin-top: 12px;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: progress;
+      }
+      button.secondary {
+        background: #ffffff;
+        border-color: #e0e0e0;
+        font-weight: 500;
+      }
+      .status {
+        margin-top: 10px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 12px;
+        border: 1.5px solid;
+        display: none;
+      }
+      .status.ok {
+        background: #c5dca0;
+        border-color: #9db080;
+        display: block;
+      }
+      .status.err {
+        background: #f9dad0;
+        border-color: #c7aea6;
+        display: block;
+      }
+      .token-row {
+        margin-bottom: 10px;
+      }
+      .muted {
+        font-size: 11px;
+        color: #5c5c5c;
+        margin-top: 6px;
+        font-family: "JetBrains Mono", monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Talentpath</h1>
+    <div class="sub">Add current tab to pipeline</div>
+
+    <div class="token-row">
+      <label for="token">Session token (one-time)</label>
+      <input id="token" type="password" placeholder="paste your session token" />
+      <div class="muted">Get it from Talentpath → Settings → (future: Copy token)</div>
+    </div>
+
+    <div>
+      <label for="api">Backend URL</label>
+      <input
+        id="api"
+        type="text"
+        value="https://talentpath-app.preview.emergentagent.com"
+      />
+    </div>
+
+    <button id="add">Add to Talentpath</button>
+    <button id="saveCfg" class="secondary">Save config</button>
+
+    <div id="status" class="status"></div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

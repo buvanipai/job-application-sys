@@ -58,6 +58,7 @@ export const Jobs = {
     list: () => api.get("/jobs").then((r) => r.data),
     get: (id) => api.get(`/jobs/${id}`).then((r) => r.data),
     add: (payload) => api.post("/jobs", payload).then((r) => r.data),
+    ingest: (input) => api.post("/jobs/ingest", { input }).then((r) => r.data),
     rescore: (id) => api.post(`/jobs/${id}/score`).then((r) => r.data),
     scrape: (limit = 6) => api.post("/jobs/scrape", { limit }).then((r) => r.data),
     del: (id) => api.delete(`/jobs/${id}`).then((r) => r.data),
@@ -82,6 +83,10 @@ export const Campaigns = {
     send: (id) => api.post("/campaigns/send", { campaign_id: id }).then((r) => r.data),
     followup: (id) => api.post(`/campaigns/${id}/followup`).then((r) => r.data),
     markReply: (id, payload) => api.post(`/campaigns/${id}/reply`, payload).then((r) => r.data),
+    gmailSimulate: (campaign_id, status, body) =>
+        api.post("/gmail/simulate-reply", { campaign_id, status, body }).then((r) => r.data),
+    gmailPoll: () => api.post("/gmail/poll").then((r) => r.data),
+    gmailReplies: () => api.get("/gmail/replies").then((r) => r.data),
 };
 
 export const Skills = {

@@ -12,6 +12,13 @@ export const campaignTypeStyle = (type) => {
     return { background: "#f5f2b8", borderColor: "#c4c193" };
 };
 
+const REPLY_STATUS_STYLE = {
+    ack: { background: "#f5f2b8", borderColor: "#c4c193", label: "acknowledged" },
+    progressing: { background: "#c5dca0", borderColor: "#9db080", label: "progressing" },
+    rejected: { background: "#f9dad0", borderColor: "#c7aea6", label: "rejected" },
+    replied: { background: "#a491d3", borderColor: "#8170a9", label: "replied (manual review)" },
+};
+
 export default function CampaignsPage() {
     const [items, setItems] = useState([]);
     const [sched, setSched] = useState(null);
@@ -108,17 +115,28 @@ export default function CampaignsPage() {
                             <span className="jp-pill" style={campaignTypeStyle(c.type)}>
                                 {c.type}
                             </span>
-                            <span
-                                className="jp-pill"
-                                style={
-                                    c.status === "sent"
-                                        ? { background: "#c5dca0", borderColor: "#9db080" }
-                                        : { background: "#f5f2b8", borderColor: "#c4c193" }
-                                }
-                            >
-                                {c.status}
-                                {c.sent_at ? ` · ${new Date(c.sent_at).toLocaleDateString()}` : ""}
-                            </span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                {c.reply_status && REPLY_STATUS_STYLE[c.reply_status] ? (
+                                    <span
+                                        className="jp-pill"
+                                        style={REPLY_STATUS_STYLE[c.reply_status]}
+                                        data-testid={`reply-status-${c.id}`}
+                                    >
+                                        {REPLY_STATUS_STYLE[c.reply_status].label}
+                                    </span>
+                                ) : null}
+                                <span
+                                    className="jp-pill"
+                                    style={
+                                        c.status === "sent"
+                                            ? { background: "#c5dca0", borderColor: "#9db080" }
+                                            : { background: "#f5f2b8", borderColor: "#c4c193" }
+                                    }
+                                >
+                                    {c.status}
+                                    {c.sent_at ? ` · ${new Date(c.sent_at).toLocaleDateString()}` : ""}
+                                </span>
+                            </div>
                         </div>
 
                         <div className="font-heading font-bold">{c.subject || "(no subject)"}</div>

@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Talentpath — Add to Pipeline",
+  "version": "0.1.0",
+  "description": "One click to add any job posting to your Talentpath pipeline.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://talentpath-app.preview.emergentagent.com/*",
+    "<all_urls>"
+  ],
+  "action": {
+    "default_title": "Add to Talentpath",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  }
+}

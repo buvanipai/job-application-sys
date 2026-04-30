@@ -1,0 +1,63 @@
+{
+  "summary": "Backend-only iteration 3: validated single-input /api/jobs/ingest, canonical scored fields (match_pct/missing_skills/reason_if_low) on every insert/update, dashboard match_pct >=65 threshold, Gmail simulate-reply + poll + replies endpoints + reply_status -> should_apply_prompt flip, gmail_service.classify_reply unit cases, gmail_poll_minutes setting, and cross-user isolation. Added tests/test_backend_ingest_gmail.py (23 tests) and patched conftest cleanup + one assertion in test_backend_refactor for the new gmail_poll_minutes default. Final result: 62/62 pytest pass against the public REACT_APP_BACKEND_URL.",
+  "scope_covered": [
+    "POST /api/jobs/ingest: URL branch (mock Playwright fetch, source=url, dedup 409), paste branch (Haiku extracts title/company/desc, source=paste, url=null), 400 on empty input, 401 unauthenticated.",
+    "Canonical fields written on every insert (manual /api/jobs, ingest /api/jobs/ingest) and on rescore (/api/jobs/{id}/score): match_pct == score, missing_skills == gaps, reason_if_low == '' when match_pct >= 65 else == match_reason.",
+    "Skills upsert: skills.job_ids includes new job_id when missing_skills > 0.",
+    "GET /api/dashboard/summary jobs_high_match counts jobs with match_pct >= 65 (not legacy score>=70).",
+    "POST /api/gmail/poll returns {fetched:0, processed:0} with no Gmail OAuth (current implementation).",
+    "POST /api/gmail/simulate-reply: 404 unknown campaign, 400 invalid status, 400 when campaign has no prospect, success path for ack/progressing/replied/rejected, custom body overrides classifier, rejected flips campaign.reply_received=true, reply_status='rejected', reply_context populated, and GET /api/campaigns shows should_apply_prompt=true.",
+    "GET /api/gmail/replies: user-scoped, sorted received_at desc, no Mongo _id leak, secondary user does not see primary's replies.",
+    "gmail_service.classify_reply unit: 'thank you for applying' -> ack; 'decided to move forward with other candidates' -> rejected; 'availability for next steps' -> progressing; random -> replied.",
+    "GET /api/settings now returns gmail_poll_minutes (default 15); POST persists and is reflected on subsequent GET.",
+    "Cross-user isolation: secondary user gets 404 attempting /api/gmail/simulate-reply on primary's campaign."
+  ],
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/gmail/simulate-reply", "issue": "When `body` param is provided, the campaign DB write uses the user-provided body for reply_status classification but the response field d.result.reply_status reflects the classifier on `body`, while the request's `status` param is silently ignored. Document this in API contract or reject conflicting inputs."},
+      {"endpoint": "gmail_service.process_incoming_reply", "issue": "Match-by-prospect-email uses prospects.find_one with no user_id filter (relies on most-recent prospect across ALL users for that email). If two users have prospects sharing the same email address, replies attribute to whichever user inserted the prospect last. Acceptable for MVP but a multi-tenant hazard."},
+      {"endpoint": "gmail_service.process_incoming_reply", "issue": "campaigns.update_one filter is {'id': camp['id']} without user_id — safe today since id is uuid, but inconsistent with elsewhere in codebase that scopes by user_id."},
+      {"endpoint": "POST /api/gmail/poll", "issue": "Always returns {fetched:0, processed:0} until Gmail OAuth keys are wired (intentional). Worth surfacing in response (e.g., {fetched:0, processed:0, mocked:true}) so the frontend can show 'Gmail not connected'."},
+      {"endpoint": "GET /api/scheduler/status", "issue": "Doesn't expose gmail_poll_minutes although it now exists in settings; would be useful for the UI."},
+      {"endpoint": "POST /api/jobs/ingest", "issue": "Treats anything starting with http://|https:// as URL but does not strip whitespace beyond .strip() (already does) and does not validate hostname. Accepts e.g. 'https:// hello' (split on first whitespace)."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/test_backend_api.py",
+    "/app/backend/tests/test_backend_refactor.py",
+    "/app/backend/tests/test_backend_ingest_gmail.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: scope gmail_service.process_incoming_reply matching by user_id (currently global by email). Pass intended user_id from gmail_poll_manual through to processor.",
+    "Optional: when /api/gmail/simulate-reply is called with both `status` and `body`, either reject as 400 or document that body wins.",
+    "Optional: include `mocked: true` (or `gmail_connected: false`) in POST /api/gmail/poll response so the UI can show a meaningful status until OAuth lands.",
+    "Optional: include gmail_poll_minutes in /api/scheduler/status response.",
+    "Optional: validate URL format in /api/jobs/ingest (e.g., reject 'https:// space')."
+  ],
+  "critical_code_review_comments": [
+    "_scored_fields() correctly writes both legacy (score/gaps/match_reason) AND canonical (match_pct/missing_skills/reason_if_low) keys on every insert path (manual, ingest, scrape, rescore). reason_if_low gating at <65 matches spec.",
+    "Dashboard summary jobs_high_match query uses {'match_pct': {'$gte': 65}} — correct switch from legacy score>=70.",
+    "Settings DEFAULT_SETTINGS now includes gmail_poll_minutes:15 and POST /api/settings filters writes to keys in DEFAULT_SETTINGS only — safe.",
+    "gmail_service.classify_reply uses ordered priority buckets (ack > rejected > progressing > replied) and is purely keyword-based per spec — fast and deterministic. Good.",
+    "gmail_service.process_incoming_reply finds prospect by email globally (no user_id filter on prospects.find_one). This is a multi-tenant bug-in-waiting if two users have the same prospect email; recommend adding user_id once Gmail OAuth lands and ties messages to a user.",
+    "/api/gmail/simulate-reply silently overrides the `status` argument when `body` is provided — undocumented behavior.",
+    "/api/gmail/poll is a no-op stub today (returns []). The endpoint contract is fine but the response should signal 'mocked' for UX clarity.",
+    "Iteration-1 RCA still applies: ai_service.py loads its own .env at import to ensure EMERGENT_LLM_KEY availability before server.py's load_dotenv runs. Verified working under the full Haiku-driven test suite (extract_job_fields + score_jobs_batch all return well-formed JSON)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/conftest.py (added gmail_replies to per-user teardown)",
+    "/app/backend/tests/test_backend_refactor.py (TestSettings.test_get_returns_defaults now expects gmail_poll_minutes:15)",
+    "/app/backend/tests/test_backend_ingest_gmail.py (NEW — 23 tests for ingest + canonical fields + Gmail endpoints + classify_reply unit + isolation)"
+  ],
+  "success_rate": {"backend": "100% (62/62 pytest)", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "Per /app/auth_testing.md — tests seed users + session_tokens directly into test_database.users / user_sessions and call APIs with Authorization: Bearer <token>. No real Google OAuth used.",
+  "seed_data_creation": "Two ephemeral users (primary + secondary) per pytest session; teardown clears jobs/prospects/campaigns/skills/resumes/user_settings/gmail_replies/users/user_sessions.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Public URL: https://talentpath-app.preview.emergentagent.com. Auth = Bearer session_token (seed via Mongo per /app/auth_testing.md). Test suite is split across three files: test_backend_api.py (regression), test_backend_refactor.py (hub-and-spoke endpoints), test_backend_ingest_gmail.py (iteration-3 ingest + Gmail + canonical fields). Rerun: pytest /app/backend/tests/ -v. AI calls go through emergentintegrations using EMERGENT_LLM_KEY. Gmail real OAuth is NOT wired — /api/gmail/poll always returns 0/0 and /api/gmail/simulate-reply is the dev injection path. Mocked APIs in this iteration: Playwright URL scrape (mock_scraper.mock_fetch_url), Apify+Hunter+Vibe Prospecting MCP, Gmail inbox polling (returns []), Gmail SMTP send, GCS PDF, Company research. Frontend was NOT tested.",
+  "rca of the issue": "No bugs surfaced this iteration. All 62/62 tests pass. The only multi-tenant hazard worth fixing pre-OAuth is gmail_service.process_incoming_reply — when real Gmail messages start landing, scope prospect/campaign lookup by user_id derived from the polling user, not by email match alone."
+}

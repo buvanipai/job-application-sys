@@ -170,3 +170,73 @@ def mock_company_context(company: str) -> str:
         f"platform reliability, developer tooling, and customer-facing analytics. Public "
         f"communication emphasizes craft, ownership, and shipping."
     )
+
+
+def mock_fetch_url(url: str) -> dict:
+    """Mocked Playwright fetch of a job URL. Returns {text, title_hint, company_hint}.
+    Matches known sample URLs; otherwise synthesizes a generic JD block.
+    """
+    for j in SAMPLE_JOBS:
+        if j.get("url") and j["url"] == url:
+            return {
+                "text": (
+                    f"{j['title']} at {j['company']}\n"
+                    f"Location: {j.get('location','remote')}\n\n"
+                    f"{j['description']}"
+                ),
+                "title_hint": j["title"],
+                "company_hint": j["company"],
+                "location_hint": j.get("location"),
+            }
+    # Unknown URL — synthesize a generic page text
+    slug = url.rstrip("/").split("/")[-1][:60] or "role"
+    host = url.split("/")[2] if "://" in url else "example.com"
+    return {
+        "text": (
+            f"{slug.replace('-', ' ').title()} — {host}\n\n"
+            "We are hiring a software engineer to build modern web products. "
+            "Stack: Python, TypeScript, React, PostgreSQL, AWS. Remote-friendly, "
+            "strong focus on shipping, craft, and collaboration. 3+ years experience preferred."
+        ),
+        "title_hint": None,
+        "company_hint": host.split(".")[0].title(),
+        "location_hint": None,
+    }
+
+
+# -------------------- Mock Gmail (replace with real Gmail API when OAuth keys arrive) --------------------
+
+REPLY_TEMPLATES = {
+    "ack": (
+        "Thanks for applying to {company}! We've received your application and will be in "
+        "touch if there's a match."
+    ),
+    "rejected": (
+        "Thank you for your interest in {company}. After careful review we've decided to "
+        "move forward with other candidates at this time."
+    ),
+    "progressing": (
+        "Thanks for reaching out! Would love to schedule a quick chat — could you share your "
+        "availability for a 30-minute call next week? We'd also like to send a short "
+        "take-home assessment."
+    ),
+    "replied": (
+        "Thanks for the note. Happy to chat more — what would be helpful to cover?"
+    ),
+}
+
+
+def mock_gmail_synthesize_reply(prospect: dict, campaign: dict, status: str = "progressing") -> dict:
+    """Build a synthetic inbound email for testing the reply pipeline.
+    In production this is replaced by a real Gmail API list+get loop.
+    """
+    body = REPLY_TEMPLATES.get(status, REPLY_TEMPLATES["replied"]).format(
+        company=(prospect or {}).get("company", "the company")
+    )
+    return {
+        "from_email": (prospect or {}).get("email", "unknown@example.com"),
+        "to_email": "you@example.com",
+        "subject": "Re: " + (campaign or {}).get("subject", "your message"),
+        "body": body,
+        "received_at": datetime.now(timezone.utc).isoformat(),
+    }

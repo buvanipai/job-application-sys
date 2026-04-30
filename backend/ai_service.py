@@ -202,3 +202,25 @@ async def generate_interview_answers(job: dict, company_context: str, profile: s
     if isinstance(parsed, list):
         return [{"q": str(x.get("q", "")), "a": str(x.get("a", ""))} for x in parsed if isinstance(x, dict)]
     return []
+
+
+async def extract_job_fields(raw: str) -> dict:
+    """Extract {title, company, location, description} from raw JD text or scraped page text.
+    Haiku only — fast, cheap, structured extraction."""
+    system = (
+        "You extract structured job fields from raw text (a URL-scraped page or pasted JD). "
+        "Return JSON: {title, company, location, description}. "
+        "description should be the cleaned JD body (what the candidate will do + requirements). "
+        "Use empty string if a field is not discoverable. JSON only."
+    )
+    user_msg = f"RAW:\n{(raw or '')[:5000]}\n\nReturn JSON now."
+    resp = await _chat(HAIKU, system, user_msg)
+    parsed = _extract_json(resp)
+    if not isinstance(parsed, dict):
+        return {"title": "", "company": "", "location": "", "description": (raw or "")[:4000]}
+    return {
+        "title": (parsed.get("title") or "").strip(),
+        "company": (parsed.get("company") or "").strip(),
+        "location": (parsed.get("location") or "").strip(),
+        "description": (parsed.get("description") or raw or "")[:4000],
+    }

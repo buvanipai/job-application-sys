@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 import ai_service
 import mock_scraper
 import scheduler_service
+import gmail_service
 
 # REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
 
@@ -60,12 +61,18 @@ class Job(BaseModel):
     url: Optional[str] = None
     location: Optional[str] = None
     description: str
+    # Legacy (still written)
     score: int = 0
     match_reason: str = ""
     gaps: List[str] = []
+    # Canonical (per spec)
+    match_pct: int = 0
+    missing_skills: List[str] = []
+    reason_if_low: str = ""
     status: str = "new"  # new, applied, archived
     company_context: str = ""
     interview_answers: Optional[List[dict]] = None
+    source: Optional[str] = None  # url|paste|seed|manual
     created_at: str
 
 
@@ -99,6 +106,7 @@ class Campaign(BaseModel):
     followup_sent_at: Optional[str] = None
     reply_received: bool = False
     reply_context: str = ""
+    reply_status: Optional[str] = None  # ack | progressing | rejected | replied
     replied_at: Optional[str] = None
     provider_receipt: Optional[dict] = None
     artifact_url: Optional[str] = None
@@ -170,6 +178,7 @@ class ReplyMarkRequest(BaseModel):
 class SettingsIn(BaseModel):
     followup_days: Optional[int] = None
     apply_after_days: Optional[int] = None
+    gmail_poll_minutes: Optional[int] = None
     signature: Optional[str] = None
 
 
@@ -231,7 +240,7 @@ def _iso(dt: Optional[datetime] = None) -> str:
     return (dt or datetime.now(timezone.utc)).isoformat()
 
 
-DEFAULT_SETTINGS = {"followup_days": 3, "apply_after_days": 7, "signature": ""}
+DEFAULT_SETTINGS = {"followup_days": 3, "apply_after_days": 7, "gmail_poll_minutes": 15, "signature": ""}
 
 
 async def _get_user_settings(user_id: str) -> dict:
@@ -327,6 +336,23 @@ async def auth_logout(request: Request, response: Response):
 
 # -------------------- Jobs --------------------
 
+def _scored_fields(s: dict) -> dict:
+    """Canonical scored fields written on every job insert/update.
+    Keeps legacy (score/gaps/match_reason) alongside new canonical names
+    (match_pct/missing_skills/reason_if_low) so both are always populated."""
+    score = int(s.get("score", 0) or 0)
+    reason = s.get("match_reason", "") or ""
+    gaps = s.get("gaps", []) or []
+    return {
+        "score": score,
+        "match_pct": score,
+        "match_reason": reason,
+        "reason_if_low": reason if score < 65 else "",
+        "gaps": gaps,
+        "missing_skills": gaps,
+    }
+
+
 async def _upsert_skills_for_gaps(user_id: str, job_id: str, gaps: list):
     """Incrementally update `skills` collection when a job is (re)scored.
     No LLM involved here — just DB writes."""
@@ -370,9 +396,8 @@ async def _remove_job_from_skills(user_id: str, job_id: str):
 
 @api.post("/jobs")
 async def add_job_manual(body: JobManualIn, user: dict = Depends(require_user)):
-    """Add a single job manually (URL + JD). Scores it with Haiku + auto-aggregates skills."""
+    """Add a single job manually with explicit fields. Use POST /api/jobs/ingest for URL/paste."""
     uid = user["user_id"]
-    # Dedup by URL if provided
     if body.url:
         existing = await db.jobs.find_one({"user_id": uid, "url": body.url}, {"_id": 0})
         if existing:
@@ -392,16 +417,72 @@ async def add_job_manual(body: JobManualIn, user: dict = Depends(require_user)):
         "url": body.url,
         "location": body.location,
         "description": body.description,
-        "score": int(s.get("score", 0)),
-        "match_reason": s.get("match_reason", ""),
-        "gaps": s.get("gaps", []),
         "status": "new",
         "company_context": "",
         "interview_answers": None,
         "created_at": _iso(),
+        **_scored_fields(s),
     }
     await db.jobs.insert_one(dict(doc))
-    await _upsert_skills_for_gaps(uid, job_id, doc["gaps"])
+    await _upsert_skills_for_gaps(uid, job_id, doc["missing_skills"])
+    return doc
+
+
+@api.post("/jobs/ingest")
+async def ingest_job(body: dict, user: dict = Depends(require_user)):
+    """Single-input add: pastes a URL OR raw JD text.
+    - URL → Playwright fetch (mocked) → Haiku extract if title/company missing
+    - Raw text → Haiku extract {title, company, location, description}
+    Then score with Haiku + auto-upsert skills.
+    """
+    uid = user["user_id"]
+    raw = (body.get("input") or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="input is required")
+
+    url: Optional[str] = None
+    scraped_text: str = ""
+    if raw.startswith("http://") or raw.startswith("https://"):
+        # URL branch (mocked Playwright)
+        url = raw.split()[0]
+        fetched = mock_scraper.mock_fetch_url(url)
+        scraped_text = fetched.get("text", "")
+        # Dedup by URL
+        existing = await db.jobs.find_one({"user_id": uid, "url": url}, {"_id": 0})
+        if existing:
+            raise HTTPException(status_code=409, detail="Job with this URL already exists")
+    else:
+        scraped_text = raw
+
+    extracted = await ai_service.extract_job_fields(scraped_text)
+    title = extracted.get("title") or "Untitled role"
+    company = extracted.get("company") or "Unknown company"
+    location = extracted.get("location") or None
+    description = extracted.get("description") or scraped_text[:4000]
+
+    profile = await get_candidate_profile(uid)
+    scores = await ai_service.score_jobs_batch(
+        [{"title": title, "company": company, "description": description}], profile
+    )
+    s = scores[0] if scores else {"score": 0, "match_reason": "", "gaps": []}
+    job_id = f"job_{uuid.uuid4().hex[:12]}"
+    doc = {
+        "id": job_id,
+        "user_id": uid,
+        "title": title,
+        "company": company,
+        "url": url,
+        "location": location,
+        "description": description,
+        "status": "new",
+        "company_context": "",
+        "interview_answers": None,
+        "source": "url" if url else "paste",
+        "created_at": _iso(),
+        **_scored_fields(s),
+    }
+    await db.jobs.insert_one(dict(doc))
+    await _upsert_skills_for_gaps(uid, job_id, doc["missing_skills"])
     return doc
 
 
@@ -412,7 +493,6 @@ async def rescore_job(job_id: str, user: dict = Depends(require_user)):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     profile = await get_candidate_profile(uid)
-    # Remove old gaps from skills first (so frequency is accurate)
     await _remove_job_from_skills(uid, job_id)
     payload = [{
         "title": job.get("title", ""), "company": job.get("company", ""),
@@ -420,15 +500,10 @@ async def rescore_job(job_id: str, user: dict = Depends(require_user)):
     }]
     scores = await ai_service.score_jobs_batch(payload, profile)
     s = scores[0] if scores else {"score": 0, "match_reason": "", "gaps": []}
-    updates = {
-        "score": int(s.get("score", 0)),
-        "match_reason": s.get("match_reason", ""),
-        "gaps": s.get("gaps", []),
-    }
+    updates = _scored_fields(s)
     await db.jobs.update_one({"id": job_id, "user_id": uid}, {"$set": updates})
-    await _upsert_skills_for_gaps(uid, job_id, updates["gaps"])
-    updated = {**job, **updates}
-    return updated
+    await _upsert_skills_for_gaps(uid, job_id, updates["missing_skills"])
+    return {**job, **updates}
 
 
 @api.post("/jobs/scrape")
@@ -462,16 +537,15 @@ async def scrape_jobs(body: ScrapeRequest, user: dict = Depends(require_user)):
             "url": j.get("url"),
             "location": j.get("location"),
             "description": j["description"],
-            "score": int(s.get("score", 0)),
-            "match_reason": s.get("match_reason", ""),
-            "gaps": s.get("gaps", []),
             "status": "new",
             "company_context": "",
             "interview_answers": None,
+            "source": "seed",
             "created_at": now,
+            **_scored_fields(s),
         }
         await db.jobs.insert_one(dict(doc))
-        await _upsert_skills_for_gaps(uid, job_id, doc["gaps"])
+        await _upsert_skills_for_gaps(uid, job_id, doc["missing_skills"])
         inserted.append(doc)
     return {
         "inserted": len(inserted),
@@ -737,6 +811,9 @@ async def list_campaigns(user: dict = Depends(require_user)):
     cutoff = datetime.now(timezone.utc) - timedelta(days=apply_after)
     for c in items:
         c["should_apply_prompt"] = False
+        if c.get("reply_status") == "rejected":
+            c["should_apply_prompt"] = True
+            continue
         if (
             c.get("type") == "email"
             and c.get("followup_done")
@@ -955,13 +1032,71 @@ async def update_settings(body: SettingsIn, user: dict = Depends(require_user)):
     return await _get_user_settings(uid)
 
 
+# -------------------- Gmail inbox monitoring --------------------
+
+class GmailSimulateRequest(BaseModel):
+    campaign_id: str
+    status: str = "progressing"  # ack | rejected | progressing | replied
+    body: Optional[str] = None
+
+
+@api.post("/gmail/poll")
+async def gmail_poll_manual(user: dict = Depends(require_user)):
+    """Manually trigger the Gmail inbox poll for THIS user only."""
+    uid = user["user_id"]
+    replies = await gmail_service.fetch_replies_for_user(db, uid)
+    processed = 0
+    for r in replies:
+        res = await gmail_service.process_incoming_reply(db, r)
+        if res.get("matched"):
+            processed += 1
+    return {"fetched": len(replies), "processed": processed}
+
+
+@api.post("/gmail/simulate-reply")
+async def gmail_simulate_reply(body: GmailSimulateRequest, user: dict = Depends(require_user)):
+    """Dev/test helper: inject a synthetic inbound reply for a specific campaign.
+    Real Gmail polling will replace this once OAuth keys are available."""
+    uid = user["user_id"]
+    if body.status not in {"ack", "rejected", "progressing", "replied"}:
+        raise HTTPException(status_code=400, detail="invalid status")
+    camp = await db.campaigns.find_one({"id": body.campaign_id, "user_id": uid}, {"_id": 0})
+    if not camp:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    prospect = await db.prospects.find_one(
+        {"id": camp.get("prospect_id"), "user_id": uid}, {"_id": 0}
+    )
+    if not prospect:
+        raise HTTPException(status_code=400, detail="Campaign has no prospect")
+    if body.body:
+        reply = {
+            "from_email": prospect.get("email", ""),
+            "to_email": "you@example.com",
+            "subject": "Re: " + (camp.get("subject") or ""),
+            "body": body.body,
+            "received_at": _iso(),
+        }
+    else:
+        reply = mock_scraper.mock_gmail_synthesize_reply(prospect, camp, body.status)
+    result = await gmail_service.process_incoming_reply(db, reply)
+    return {"reply_injected": reply, "result": result}
+
+
+@api.get("/gmail/replies")
+async def list_gmail_replies(user: dict = Depends(require_user)):
+    items = await db.gmail_replies.find(
+        {"user_id": user["user_id"]}, {"_id": 0}
+    ).sort("received_at", -1).to_list(200)
+    return items
+
+
 # -------------------- Dashboard summary --------------------
 
 @api.get("/dashboard/summary")
 async def dashboard_summary(user: dict = Depends(require_user)):
     uid = user["user_id"]
     jobs_total = await db.jobs.count_documents({"user_id": uid})
-    jobs_high = await db.jobs.count_documents({"user_id": uid, "score": {"$gte": 70}})
+    jobs_high = await db.jobs.count_documents({"user_id": uid, "match_pct": {"$gte": 65}})
     prospects_total = await db.prospects.count_documents({"user_id": uid})
     emails_sent = await db.campaigns.count_documents({"user_id": uid, "type": "email", "status": "sent"})
     followups_sent = await db.campaigns.count_documents({"user_id": uid, "type": "followup"})
